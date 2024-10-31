@@ -32,6 +32,14 @@ class DirectedGAE(torch.nn.Module):
         logits = torch.sigmoid(torch.sum(z[src] @ self.bilinear_weight * z[dst], dim=1))
         return logits
 
+    def decode_all(self, z):
+        # Bilinear decoder for inference on all node pairs
+        adj = torch.matmul(
+            torch.matmul(z, self.bilinear_weight), 
+            z.t()
+        )
+        return torch.sigmoid(adj)
+
     def reconstruction_loss(self, pred, true):
         # Binary cross-entropy loss for link prediction
         return F.binary_cross_entropy(pred, true)
