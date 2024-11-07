@@ -1,4 +1,5 @@
 import itertools
+import sys
 import torch
 
 
@@ -86,11 +87,61 @@ def decode_all_edges(model, inference_data, num_inference_nodes, threshold=0.5):
     print(f"Number of edges in the original graph: {inference_data.edge_index.shape[1]}")
     print(f"Number of edges in the fully connected graph: {edge_index.shape[1]}")
     print(f"Number of edges after thresholding: {len(edge_list)}")
+    print(f"Shape of decoded edges: {edge_probs.shape}")
     print(f"Number of symmetrical pairs: {symmetric_count}")
     print(f"How many edges you removed from H to get G: {len(missing_edges)}")
     print(f"How many edges were added (or fall above the threshold) in C(G): {len(edge_list)-inference_data.edge_index.shape[1]}")
     print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
 
+
+def decode_all(model, inference_data, num_inference_nodes, threshold=0.5):
+    """
+    Decodes all possible edges from the latent representations to reconstruct the entire graph,
+    excluding self-loops.
+
+    Parameters:
+    - model: The trained model (autoencoder).
+    - z: Latent representations of the nodes.
+    - num_nodes: The total number of nodes in the graph.
+    - threshold: Probability threshold for edge existence.
+
+    Returns:
+    - adjacency_matrix: A (num_nodes, num_nodes) numpy array representing the adjacency matrix.
+    - edge_list: A list of tuples (u, v) where each pair represents an edge (excluding self-loops).
+    """
+    # Step 1: Decode the edges using the model's decoder
+    with torch.no_grad():
+        z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index)
+        edge_probs = model.decode_all(z)  # Predict probabilities for all possible edges
+
+    # Step 2: Threshold the adjacency matrix
+    binary_adj_matrix = (edge_probs > threshold).float()
+
+    # Step 3: Create an edge list from the thresholded adjacency matrix (excluding self-loops)
+    edge_list = []
+    for u in range(num_inference_nodes):
+        row = binary_adj_matrix[u].long().cpu().numpy()  # Convert only the row to NumPy
+        # Collect edges where value is 1 and exclude self-loops
+        edge_list.extend([(u, v) for v in range(num_inference_nodes) if u != v and row[v] == 1])
+
+    # Validate the symmetric closure of the edges
+    symmetric_count, symmetric_percentage = validate_symmetric_closure(edge_list)
+
+    # Convert edge_index to a list of tuples, and then both to sets for comparison and faster processing
+    edge_index_conv_to_list = list(zip(inference_data.edge_index[0].tolist(), inference_data.edge_index[1].tolist()))
+    input_edge_set = set(edge_index_conv_to_list)
+    output_edge_set = set(edge_list)
+    missing_edges = input_edge_set - output_edge_set
+
+    print(f"Threshold: {threshold}")
+    print(f"Number of nodes: {num_inference_nodes}")
+    print(f"Number of edges in the original graph: {inference_data.edge_index.shape[1]}")
+    print(f"Shape of decoded edges: {edge_probs.shape}")
+    print(f"Number of edges after thresholding: {len(edge_list)}")
+    print(f"Number of symmetrical pairs: {symmetric_count}")
+    print(f"How many edges you removed from H to get G: {len(missing_edges)}")
+    print(f"How many edges were added (or fall above the threshold) in C(G): {len(edge_list)-inference_data.edge_index.shape[1]}")
+    print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
 
 def validate_symmetric_closure(edge_list):
     # Convert the list of edges to a set for fast lookup

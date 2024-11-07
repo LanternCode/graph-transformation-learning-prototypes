@@ -5,7 +5,7 @@ import torch
 import hyperparameters
 from gen_sym_closure import get_data
 from model_gae import DirectedGAE
-from eval import decode_regular_edges, decode_all_edges
+from eval import decode_regular_edges, decode_all_edges, decode_all
 
 num_inference_nodes = 1000
 inference_data = get_data(num_inference_nodes, 0.1)
@@ -19,4 +19,5 @@ model.load_state_dict(torch.load('trained_gae.pth'))
 # Set the model to evaluation mode and perform regular or fully connected decoding
 model.eval()
 #decode_regular_edges(model, inference_data, num_inference_nodes)
-decode_all_edges(model, inference_data, num_inference_nodes, 0.8)
+#decode_all_edges(model, inference_data, num_inference_nodes, 0.8)
+decode_all(model, inference_data, num_inference_nodes, 0.8)
