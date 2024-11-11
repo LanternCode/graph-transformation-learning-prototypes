@@ -1,12 +1,13 @@
 import torch
 import hyperparameters
 from gen_sym_closure import get_data
-from model_gae import DirectedGAE
+from model_gae_gcn import DirectedGAE
+from model_gae_gin import DirectedGAEGIN
 
 
 def train_gae():
     # Example usage
-    model = DirectedGAE(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
+    model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
                         num_nodes=hyperparameters.num_nodes)
     optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
     data = get_data()
@@ -37,5 +38,8 @@ def train_gae():
         if epoch % 100 == 0:
             print(f'Total Loss: {loss.item():.4f}')
 
-    torch.save(model.state_dict(), 'trained_gae.pth')
-    print("Model saved to 'trained_gae.pth'")
+    torch.save(model.state_dict(), 'trained_gae_gin.pth')
+    print("Model saved to 'trained_gae_gin.pth'")
+
+
+train_gae()

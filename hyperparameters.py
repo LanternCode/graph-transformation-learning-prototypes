@@ -5,4 +5,4 @@ heads = 2  # Number of attention heads - not used in model_gae
 epochs = 1000
 num_nodes = 100000
 learning_rate = 0.01
-supervised_loss_factor = 0.4
+supervised_loss_factor = 0

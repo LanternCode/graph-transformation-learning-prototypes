@@ -19,4 +19,5 @@ source /home/a/amm106/miniconda3/bin/activate grenn
 # Commands
 cd /home/a/amm106/Repositories/TestGReNN || echo "Failed to establish the absolute path"
 python /home/a/amm106/Repositories/TestGReNN/inference.py
+#python /home/a/amm106/Repositories/TestGReNN/train.py
 

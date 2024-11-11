@@ -3,54 +3,39 @@ import sys
 import torch
 
 
-def decode_regular_edges(model, inference_data, num_inference_nodes):
+def decode_given_edges(model, inference_data):
+    """
+        Decodes the given edges from the latent representations
+
+        Parameters:
+        - model: The trained model (autoencoder).
+        - inference_data: The Data object with nodes and edges.
+        - num_inference_nodes: The total number of nodes in the graph.
+        """
     with torch.no_grad():
+        # Specify the edges to score
+        edges_to_score = inference_data.removed_edges
+
+        # Obtain the latent representation and score the edges
         z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index)
-        edge_probs = model.decode(z, inference_data.removed_edges)
-        adjacency_matrix = torch.zeros(num_inference_nodes, num_inference_nodes)
+        edge_probs = model.decode(z, edges_to_score)
 
-        # torch.set_printoptions(sci_mode=False)
-        # print(f"Adjacency matrix structure: : {edge_probs}")
-        # print(f"The mean is: {torch.mean(edge_probs)}")
-        # sys.exit()
-
-        # Fill in the adjacency matrix with the thresholded edge probabilities
-        threshold = 0.5
-        for idx, (u, v) in enumerate(inference_data.edge_index.t()):
-            if edge_probs[idx] > threshold:
-                adjacency_matrix[u, v] = 1
-
-        adjacency_matrix = adjacency_matrix.long().cpu().numpy()
-
-        # Step 4: Create an edge list from the thresholded adjacency matrix (excluding self-loops)
-        edge_list = [(u, v) for u in range(num_inference_nodes) for v in range(num_inference_nodes) if
-                     u != v and adjacency_matrix[u, v] == 1]
-
-    # Validate the symmetric closure of the edges
-    symmetric_count, symmetric_percentage = validate_symmetric_closure(edge_list)
-
-    print(f"Threshold: {threshold}")
-    print(f"Number of nodes: {num_inference_nodes}")
-    print(f"Number of edges before thresholding: {inference_data.edge_index.shape}")
-    print(f"Number of edges after thresholding: {len(edge_list)}")
-    print(f"Number of symmetrical pairs: {symmetric_count}")
-    print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
+        # Print the results
+        torch.set_printoptions(sci_mode=False)
+        print(f"Decoded probability return structure: : {edge_probs}")
+        print(f"The mean is: {torch.mean(edge_probs)}")
 
 
-def decode_all_edges(model, inference_data, num_inference_nodes, threshold=0.5):
+def manually_decode_all_edges(model, inference_data, num_inference_nodes, threshold=0.5):
     """
     Decodes all possible edges from the latent representations to reconstruct the entire graph,
     excluding self-loops.
 
     Parameters:
     - model: The trained model (autoencoder).
-    - z: Latent representations of the nodes.
-    - num_nodes: The total number of nodes in the graph.
+    - inference_data: The Data object with nodes and edges.
+    - num_inference_nodes: The total number of nodes in the graph.
     - threshold: Probability threshold for edge existence.
-
-    Returns:
-    - adjacency_matrix: A (num_nodes, num_nodes) numpy array representing the adjacency matrix.
-    - edge_list: A list of tuples (u, v) where each pair represents an edge (excluding self-loops).
     """
     # Step 1: Create all possible edges between nodes (u, v), excluding self-loops
     edge_index = torch.tensor(
@@ -95,20 +80,6 @@ def decode_all_edges(model, inference_data, num_inference_nodes, threshold=0.5):
 
 
 def decode_all(model, inference_data, num_inference_nodes, threshold=0.5):
-    """
-    Decodes all possible edges from the latent representations to reconstruct the entire graph,
-    excluding self-loops.
-
-    Parameters:
-    - model: The trained model (autoencoder).
-    - z: Latent representations of the nodes.
-    - num_nodes: The total number of nodes in the graph.
-    - threshold: Probability threshold for edge existence.
-
-    Returns:
-    - adjacency_matrix: A (num_nodes, num_nodes) numpy array representing the adjacency matrix.
-    - edge_list: A list of tuples (u, v) where each pair represents an edge (excluding self-loops).
-    """
     # Step 1: Decode the edges using the model's decoder
     with torch.no_grad():
         z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index)
