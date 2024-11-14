@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=gaetest
+#SBATCH --job-name=GReNN
 #SBATCH --account=geoai
 #SBATCH --tasks=1
 #SBATCH --cpus-per-task=8

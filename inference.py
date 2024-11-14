@@ -9,12 +9,12 @@ num_inference_nodes = 1000
 inference_data = get_data(num_inference_nodes, 0.1)
 
 # Recreate the model structure
-#model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
-model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
+model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
+#model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
 
 # Load the saved model state
-#model.load_state_dict(torch.load('trained_gae_gcn.pth'))
-model.load_state_dict(torch.load('trained_gae_gin.pth'))
+model.load_state_dict(torch.load('trained_gae_gcn.pth'))
+#model.load_state_dict(torch.load('trained_gae_gin.pth'))
 
 # Set the model to evaluation mode and perform regular or fully connected decoding
 model.eval()

@@ -40,23 +40,13 @@ class DirectedGAEGCN(torch.nn.Module):
         )
         return torch.sigmoid(adj)
 
-    def reconstruction_loss(self, pred, true):
-        # Binary cross-entropy loss for link prediction
-        return F.binary_cross_entropy(pred, true)
+    # Compute the supervised loss
+    def total_loss(self, supervised_pred, supervised_true, epoch_num):
+        sup_loss = F.binary_cross_entropy(supervised_pred, supervised_true)
 
-    def supervised_loss(self, pred, true):
-        # Binary cross-entropy for supervised loss (link prediction)
-        return F.binary_cross_entropy(pred, true)
-
-    def total_loss(self, reconstruction_pred, reconstruction_true, supervised_pred, supervised_true, epoch_num, lambda_=0.5):
-        # Combine reconstruction loss and supervised loss
-        recon_loss = self.reconstruction_loss(reconstruction_pred, reconstruction_true)
-        sup_loss = self.supervised_loss(supervised_pred, supervised_true)
-
-        # Print losses for monitoring
+        # Print for monitoring
         if epoch_num % 100 == 0:
             print(f'Epoch {epoch_num + 1}')
-            print(f"Reconstruction Loss: {recon_loss.item():.4f}, Supervised Loss: {sup_loss.item():.4f}")
+            print(f"Supervised Loss: {sup_loss.item():.4f}")
 
-        # Total loss is a weighted sum of reconstruction and supervised loss
-        return lambda_ * recon_loss + (1 - lambda_) * sup_loss
+        return sup_loss

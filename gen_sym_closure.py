@@ -4,7 +4,7 @@ import random
 from torch_geometric.data import Data
 
 
-def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1):
+def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyperparameters.missing_edge_fraction):
     # Step 1: Generate symmetric closure edges
     edges = []
     for _ in range(num_nodes):
@@ -41,10 +41,8 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1
     train_pos_edge_index = edge_index[:, mask]  # Remaining edges (positive samples)
 
     # Split into incoming and outgoing edge indices
-    # Outgoing edges: (u -> v)
-    outgoing_edge_index = train_pos_edge_index
-    # Incoming edges: reverse of outgoing (v -> u)
-    incoming_edge_index = torch.stack([train_pos_edge_index[1], train_pos_edge_index[0]], dim=0)
+    outgoing_edge_index = train_pos_edge_index # Outgoing edges: (u -> v)
+    incoming_edge_index = torch.stack([train_pos_edge_index[1], train_pos_edge_index[0]], dim=0) # Incoming edges: reverse of outgoing (v -> u)
 
     # Create negative samples (pairs of nodes that have no edges in either direction)
     neg_edges = []
