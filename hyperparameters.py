@@ -7,3 +7,5 @@ num_nodes = 100000
 learning_rate = 0.01
 supervised_loss_factor = 0
 missing_edge_fraction = 0.2 # Test ratio
+patience = 5 # If validation performance fails to improve after this many validation loop runs, conclude testing
+validation_frequency = 5 # Perform a validation loop every this many epochs

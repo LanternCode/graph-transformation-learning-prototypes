@@ -5,19 +5,19 @@
 #SBATCH --tasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=amm106@le.ac.uk
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.err
 #SBATCH --export=None
-#SBATCH --partition=devel
+##SBATCH --partition=devel
 
 # Environment
 source /home/a/amm106/miniconda3/bin/activate grenn
 
 # Commands
 cd /home/a/amm106/Repositories/TestGReNN || echo "Failed to establish the absolute path"
-python /home/a/amm106/Repositories/TestGReNN/inference.py
-#python /home/a/amm106/Repositories/TestGReNN/train.py
+#python /home/a/amm106/Repositories/TestGReNN/inference.py
+python /home/a/amm106/Repositories/TestGReNN/train.py
 

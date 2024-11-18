@@ -1,3 +1,5 @@
+from sklearn.model_selection import train_test_split
+
 import hyperparameters
 import torch
 import random
@@ -77,7 +79,48 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyp
     data.outgoing_edge_index = outgoing_edge_index
     data.edge_index = edge_index
 
+    # Split `removed_edges` into validation and test sets, preserving direction
+    # Separate source and target nodes from `removed_edges`
+    src_nodes, dst_nodes = data.removed_edges[0], data.removed_edges[1]
+
+    # Assuming removed_edges is a list or tensor of edge pairs (source, target)
+    val_src, test_src, val_dst, test_dst = train_test_split(
+        src_nodes, dst_nodes, test_size=0.5, random_state=42
+    )
+
+    # Combine src and dst into edge_index format
+    data.val_edge_index = (val_src, val_dst)
+    data.test_edge_index = (test_src, test_dst)
+
+    print("Edge index: ")
+    print(train_pos_edge_index)
+    data.incomplete_pairs = count_incomplete_symmetrically_closed_pairs(train_pos_edge_index)
+    print(data.incomplete_pairs)
+
     return data
+
+
+def count_incomplete_symmetrically_closed_pairs(edge_index):
+    """
+    Counts the number of incomplete symmetrically closed pairs in a directed graph
+    represented by a PyTorch tensor with edge indices.
+
+    Parameters:
+    edge_index (torch.Tensor): A tensor of shape [2, num_edges] where each column
+                               represents a directed edge (start_node, end_node).
+
+    Returns:
+    int: The number of incomplete symmetrically closed pairs.
+    """
+    # Convert edge_index to a set of tuples for efficient lookup
+    edge_set = set((edge_index[0, i].item(), edge_index[1, i].item()) for i in range(edge_index.size(1)))
+    count = 0
+
+    for u, v in edge_set:
+        if (v, u) not in edge_set:
+            count += 1
+
+    return count
 
 
 def get_data(num_nodes=hyperparameters.num_nodes, missing_edges_fraction=0.1):

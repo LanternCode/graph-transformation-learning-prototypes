@@ -41,12 +41,6 @@ class DirectedGAEGCN(torch.nn.Module):
         return torch.sigmoid(adj)
 
     # Compute the supervised loss
-    def total_loss(self, supervised_pred, supervised_true, epoch_num):
+    def total_loss(self, supervised_pred, supervised_true):
         sup_loss = F.binary_cross_entropy(supervised_pred, supervised_true)
-
-        # Print for monitoring
-        if epoch_num % 100 == 0:
-            print(f'Epoch {epoch_num + 1}')
-            print(f"Supervised Loss: {sup_loss.item():.4f}")
-
         return sup_loss
