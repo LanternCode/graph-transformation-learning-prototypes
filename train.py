@@ -1,6 +1,8 @@
+import sys
+
 import torch
 import hyperparameters
-from gen_sym_closure import get_data
+from gen_sym_closure import get_data, count_incomplete_symmetrically_closed_pairs
 from model_gae_gcn import DirectedGAEGCN
 from model_gae_gin import DirectedGAEGIN
 
@@ -11,57 +13,40 @@ def train_gae_gcn():
                         num_nodes=hyperparameters.num_nodes)
     optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
     data = get_data()
-    best_val_loss = 1000
 
     # Assuming x (node features), edge_index_in (incoming edges), edge_index_out (outgoing edges),
     # and true_edges (ground truth for existing edges) are provided.
     for epoch in range(hyperparameters.epochs + 1):
         optimizer.zero_grad()
 
-        # Encode graph
+        # Encode the graph
         z = model.encode(data.incoming_edge_index, data.outgoing_edge_index)
 
         # Decode graph for supervised task (predict edges using the removed edges as evaluation set)
-        supervised_pred = model.decode(z, data.train_edge_index)
-        #fully_decoded_graph = model.decode_all(z)
+        fully_decoded_graph = model.decode_all(z)
 
-        # Reconstruct the graph based on the predictions and compute the Missed Closure Pairs (MCP) Loss
-        #TODO: HERE!!!
+        # Soft reconstruct the graph based on the threshold so the adjacency matrix is binary
+        chunk_size = 5000  # Chunk size to process in smaller parts
+        soft_binary_adj_matrix = torch.zeros_like(fully_decoded_graph)
+        for i in range(0, fully_decoded_graph.size(0), chunk_size):
+            # Apply sigmoid thresholding in chunks
+            soft_binary_adj_matrix[i:i + chunk_size] = torch.sigmoid(20 * (fully_decoded_graph[i:i + chunk_size] - 0.8))
 
-        # Compute loss
-        loss = model.total_loss(
-            supervised_pred, data.train_edge_labels  # For supervised (all removed edges should exist)
+        # Compute the Missed Closure Pairs (MCP) Cross-Supervised Loss
+        loss = model.missing_closure_pairs_loss(
+            soft_binary_adj_matrix, data.adjacency_matrix, data.loss_specific_edges
         )
 
-        # Print the training loss for monitoring
+        # Compute the number of incomplete closure pairs
+        num_missing_pairs = count_incomplete_symmetrically_closed_pairs(soft_binary_adj_matrix)
+
+        # Print the training loss and incomplete pair count against the target for monitoring
         if epoch % 100 == 0:
-            print(f"Epoch {epoch + 1} Supervised Loss: {loss.item():.4f}")
+            print(f"Epoch {epoch + 1} MCP Loss: {loss.item():.4f}")
+            print(f"Reconstructed closed pairs against the target: {num_missing_pairs}/{data.incomplete_closure_pairs} ({(num_missing_pairs/data.incomplete_closure_pairs)*100:.2f}%)")
 
         loss.backward()
         optimizer.step()
-
-        # Evaluate on the validation set every few epochs
-        if epoch % hyperparameters.validation_frequency == 0:
-            with torch.no_grad():
-                val_pred = model.decode(z, data.val_edge_index)
-                val_loss = model.total_loss(val_pred, torch.ones(len(data.val_edge_index[0])))
-                print(f"Epoch {epoch + 1} Validation Loss: {val_loss.item():.4f}")
-
-                # Early stopping check
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    # Save the model if this is the best validation performance so far
-                    best_model_state = model.state_dict()
-                else:
-                    patience_counter += 1
-
-                if patience_counter >= hyperparameters.patience:
-                    print("Early stopping triggered")
-                    break
-
-    # Load the best model for testing
-    model.load_state_dict(best_model_state)
 
     with torch.no_grad():
         test_pred = model.decode(z, data.test_edge_index)
@@ -74,7 +59,7 @@ def train_gae_gcn():
         test_accuracy = ((test_pred >= threshold) == test_labels).float().mean()
         print(f"Test Accuracy: {test_accuracy.item()}")
 
-    torch.save(best_model_state, 'trained_gae_gcn.pth')
+    torch.save(model.state_dict(), 'trained_gae_gcn.pth')
     print("Model saved to 'trained_gae_gcn.pth'")
 
 
@@ -106,6 +91,7 @@ def train_gae_gin():
             lambda_=hyperparameters.supervised_loss_factor,  # Weight for reconstruction vs supervised loss
             epoch_num=epoch
         )
+
         loss.backward()
         optimizer.step()
         if epoch % 100 == 0:

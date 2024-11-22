@@ -14,7 +14,7 @@ def decode_given_edges(model, inference_data):
         """
     with torch.no_grad():
         # Specify the edges to score
-        edges_to_score = inference_data.removed_edges
+        edges_to_score = inference_data.test_edge_index
 
         # Obtain the latent representation and score the edges
         z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index)

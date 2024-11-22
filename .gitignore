@@ -4,4 +4,5 @@
 *.out
 *.pth
 __pycache__
-.idea
+*.idea
+*.slm
