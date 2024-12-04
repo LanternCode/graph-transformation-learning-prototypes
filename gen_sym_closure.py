@@ -7,7 +7,7 @@ import random
 from torch_geometric.data import Data
 
 
-def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyperparameters.missing_edge_fraction):
+def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1):
     # Step 1: Generate symmetric closure edges
     edges = []
     for _ in range(num_nodes):
@@ -29,12 +29,12 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyp
     num_missing_edges = int(num_edges * missing_edges_fraction)
 
     # Initialize the full adjacency matrix for target labels
-    adj_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+    ground_truth_adj_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
 
     # Populate adj_matrix with 1s for edges in edge_index
     for idx in range(edge_index.size(1)):
         u, v = edge_index[:, idx].tolist()
-        adj_matrix[u, v] = 1
+        ground_truth_adj_matrix[u, v] = 1
 
     # Randomly remove one direction of each symmetric pair to simulate missing edges
     missing_indices = random.sample(range(0, num_edges), num_missing_edges)
@@ -47,19 +47,17 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyp
         # Randomly decide whether to remove (u, v) or (v, u)
         if random.random() < 0.5:
             mask[idx] = False  # Remove (u -> v)
-            adj_matrix[u, v] = 0  # Set to 0 in adj_matrix to simulate removal
             removed_edges.append([u, v])  # Store removed edge (u -> v)
         else:
             mask[idx + 1] = False  # Remove (v -> u)
-            adj_matrix[v, u] = 0  # Set to 0 in adj_matrix to simulate removal
             removed_edges.append([v, u])  # Store removed edge (v -> u)
 
     # Apply mask to get the final edge indices for training (remaining edges)
     edges_after_removal = edge_index[:, mask]  # Remaining edges (positive samples)
 
     # Split into incoming and outgoing edge indices
-    outgoing_edge_index = edges_after_removal # Outgoing edges: (u -> v)
-    incoming_edge_index = torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0) # Swap the ordering
+    outgoing_edge_index = edges_after_removal  # Outgoing edges: (u -> v)
+    incoming_edge_index = torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0)  # Swap the ordering
 
     # Generate as many negative samples as there are removed_edges
     neg_edges = []
@@ -76,30 +74,17 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=hyp
     train_edge_labels = torch.cat([torch.ones(edges_after_removal.size(1)),
                                    torch.zeros(neg_edge_index.size(1))])
 
-    # Convert removed edges to a tensor (these are the edges we want to CV and Test on)
-    removed_edge_index = torch.tensor(removed_edges, dtype=torch.long).t().contiguous()
-
-    # Split the removed edges into training and test edges
-    loss_specific_edges, test_edges = train_test_split(
-        removed_edge_index.t(), test_size=0.5, random_state=42
-    )
-
-    # Separate source and target nodes from `test_edges`
-    test_src, test_dst = test_edges[0], test_edges[1]
-
     # Create the Data object with features and edge information
     data = Data(x=torch.ones(num_nodes, 1))  # Initialise a dummy node features matrix with just 1s
-    data.adjacency_matrix = adj_matrix.to_sparse()  # Sparse adjacency matrix (no removed edges)
+    data.adjacency_matrix = ground_truth_adj_matrix  # Ground truth adjacency matrix (includes removed edges)
     data.train_edge_index = train_edge_index  # Training edge indices
     data.train_edge_labels = train_edge_labels  # Training edge labels
     data.incoming_edge_index = incoming_edge_index  # Target edges used when encoding
     data.outgoing_edge_index = outgoing_edge_index  # Source edges used when encoding
     data.edge_index = edge_index  # All generated edges, used during inference
-    data.test_edge_index = (test_src, test_dst)  # Combine src and dst into Testing edge indices
-    data.loss_specific_edges = loss_specific_edges.t()  # MCP Loss-specific edges (Supervised Component edges)
 
     # Target number of pairs to complete - measured alongside the MCP loss
-    data.incomplete_closure_pairs = count_incomplete_symmetrically_closed_pairs(edges_after_removal)
+    #data.incomplete_closure_pairs = count_incomplete_symmetrically_closed_pairs(edges_after_removal)
 
     return data
 
@@ -139,7 +124,42 @@ def count_incomplete_symmetrically_closed_pairs(edge_index, is_adj_matrix=False)
     return count
 
 
+def generate_random_directed_graph(num_nodes, num_edges):
+    # Generate random edges
+    edges = set()
+    while len(edges) < num_edges:
+        src, dest = random.randint(0, num_nodes - 1), random.randint(0, num_nodes - 1)
+        if src != dest:  # Avoid self-loops
+            edges.add((src, dest))
+
+    edges = list(edges)
+    incoming_edges = [[] for _ in range(num_nodes)]
+    outgoing_edges = [[] for _ in range(num_nodes)]
+
+    for src, dest in edges:
+        incoming_edges[dest].append(src)
+        outgoing_edges[src].append(dest)
+
+    # Convert to PyTorch tensors
+    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    incoming_edge_index = torch.tensor([(s, d) for d in range(num_nodes) for s in incoming_edges[d]],
+                                       dtype=torch.long).t().contiguous()
+    outgoing_edge_index = torch.tensor([(s, d) for s in range(num_nodes) for d in outgoing_edges[s]],
+                                       dtype=torch.long).t().contiguous()
+
+    # Dummy features (all ones)
+    x = torch.ones((num_nodes, 1), dtype=torch.float)
+
+    # Create PyG data object
+    data = Data(x=x, edge_index=edge_index)
+    data.incoming_edge_index = incoming_edge_index
+    data.outgoing_edge_index = outgoing_edge_index
+
+    return data
+
+
 def get_data(num_nodes=hyperparameters.num_nodes, missing_edges_fraction=0.1):
     # Generate and check the graph
     data = generate_symmetric_closure_graph(num_nodes, missing_edges_fraction)
+    data = data.to('cuda' if torch.cuda.is_available() else 'cpu')  # For running on the GPU
     return data

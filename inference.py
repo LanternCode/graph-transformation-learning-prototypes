@@ -6,11 +6,12 @@ from eval import decode_given_edges, manually_decode_all_edges, decode_all
 from model_gae_gin import DirectedGAEGIN
 
 num_inference_nodes = 1000
-inference_data = get_data(num_inference_nodes, 0.1)
+inference_data = get_data(num_inference_nodes, hyperparameters.missing_edge_fraction)
 
 # Recreate the model structure
 model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
 #model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels, num_nodes=hyperparameters.num_nodes)
+model = model.to('cuda' if torch.cuda.is_available() else 'cpu')  # For running on the GPU
 
 # Load the saved model state
 model.load_state_dict(torch.load('trained_gae_gcn.pth'))
