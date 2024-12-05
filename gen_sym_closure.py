@@ -158,6 +158,102 @@ def generate_random_directed_graph(num_nodes, num_edges):
     return data
 
 
+def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edges_fraction=0.1):
+    """
+    Generate a dataset of smaller graphs for training, with variable sizes.
+
+    Args:
+        num_graphs (int): Number of graphs to generate.
+        min_nodes (int): Minimum number of nodes per graph.
+        max_nodes (int): Maximum number of nodes per graph.
+        missing_edges_fraction (float): Fraction of edges to remove for missing edges.
+
+    Returns:
+        dataset (list[Data]): A list of PyG Data objects, one per graph.
+    """
+    dataset = []
+
+    for _ in range(num_graphs):
+        # Randomly determine the number of nodes for this graph
+        num_nodes = random.randint(min_nodes, max_nodes)
+
+        # Step 1: Generate symmetric closure edges
+        edges = []
+        for _ in range(num_nodes):
+            u = random.randint(0, num_nodes - 1)
+            v = random.randint(0, num_nodes - 1)
+
+            if u != v:
+                if [u, v] not in edges and [v, u] not in edges:  # Ensure no duplicates
+                    edges.append([u, v])  # Directed edge (u -> v)
+                    edges.append([v, u])  # Symmetric closure (v -> u)
+
+        # Convert edge list to tensor
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        # Calculate the number of symmetric edges
+        num_edges = edge_index.size(1)
+
+        # Calculate the number of edges to remove for validation/testing
+        num_missing_edges = int(num_edges * missing_edges_fraction)
+
+        # Fix: Track symmetric pairs to handle edge removal safely
+        symmetric_pairs = {}
+        for i in range(0, edge_index.size(1), 2):
+            u, v = edge_index[:, i].tolist()
+            symmetric_pairs[(u, v)] = i
+            symmetric_pairs[(v, u)] = i + 1
+
+        # Randomly sample edges to remove
+        missing_indices = random.sample(range(0, num_edges, 2), num_missing_edges // 2)
+
+        # Create a mask to mark edges to keep
+        mask = torch.ones(num_edges, dtype=torch.bool)
+
+        for idx in missing_indices:
+            u, v = edge_index[:, idx].tolist()
+            # Use the mapping to remove both symmetric edges
+            if (u, v) in symmetric_pairs:
+                mask[symmetric_pairs[(u, v)]] = False
+            if (v, u) in symmetric_pairs:
+                mask[symmetric_pairs[(v, u)]] = False
+
+        # Apply mask to get the final edge indices
+        edges_after_removal = edge_index[:, mask]
+
+        # Split into incoming and outgoing edges
+        outgoing_edge_index = edges_after_removal
+        incoming_edge_index = torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0)
+
+        # Generate negative samples
+        neg_edges = []
+        while len(neg_edges) < len(missing_indices):
+            u = random.randint(0, num_nodes - 1)
+            v = random.randint(0, num_nodes - 1)
+            if u != v and [u, v] not in edges and [v, u] not in edges:
+                neg_edges.append([u, v])
+
+        neg_edge_index = torch.tensor(neg_edges, dtype=torch.long).t().contiguous()
+
+        # Combine positive and negative samples
+        train_edge_index = torch.cat([edges_after_removal, neg_edge_index], dim=1)
+        train_edge_labels = torch.cat([torch.ones(edges_after_removal.size(1)),
+                                       torch.zeros(neg_edge_index.size(1))])
+
+        # Create the Data object
+        data = Data(
+            x=torch.ones(num_nodes, 1),  # Dummy node features
+            train_edge_index=train_edge_index,  # Training edge indices
+            train_edge_labels=train_edge_labels,  # Training edge labels
+            incoming_edge_index=incoming_edge_index,  # Incoming edges
+            outgoing_edge_index=outgoing_edge_index,  # Outgoing edges
+            edge_index=edge_index  # All edges
+        )
+        dataset.append(data)
+
+    return dataset
+
+
 def get_data(num_nodes=hyperparameters.num_nodes, missing_edges_fraction=0.1):
     # Generate and check the graph
     data = generate_symmetric_closure_graph(num_nodes, missing_edges_fraction)
