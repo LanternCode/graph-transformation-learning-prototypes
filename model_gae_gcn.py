@@ -60,20 +60,42 @@ class DirectedGAEGCN(torch.nn.Module):
 
         return adj_list
 
-    # Calculate BCE loss across edges and non-edges
-    def compute_loss(self, reconstructed_adjs, training_graphs):
+    def compute_loss(self, reconstructed_adjs, training_graphs, pos_edge_indices, neg_edge_indices):
+        """
+        Compute BCE loss for edges and non-edges, ignoring fully decoded edges.
+
+        Args:
+            reconstructed_adjs (list of torch.Tensor): Decoded adjacency matrices.
+            training_graphs (list of torch.Tensor): Ground-truth adjacency matrices.
+            pos_edge_indices (list of torch.Tensor): List of positive edge indices for each graph.
+            neg_edge_indices (list of torch.Tensor): List of negative edge indices for each graph.
+
+        Returns:
+            torch.Tensor: The average loss over all graphs.
+        """
+
+
         total_loss = 0
 
-        for i, (reconstructed_adj, training_graph) in enumerate(zip(reconstructed_adjs, training_graphs)):
-            # Mask ground truth to match the size of the reconstructed adjacency matrix
-            # training_graph should ideally match the reconstructed_adj's size
-            if training_graph.shape != reconstructed_adj.shape:
-                training_graph = training_graph[:reconstructed_adj.size(0), :reconstructed_adj.size(1)]
+        for i, (reconstructed_adj, training_graph, pos_edges, neg_edges) in enumerate(
+                zip(reconstructed_adjs, training_graphs, pos_edge_indices, neg_edge_indices)
+        ):
+            # Decode probabilities for positive edges
+            pos_probs = reconstructed_adj[pos_edges[0], pos_edges[1]]
+            pos_labels = torch.ones(pos_probs.size(0), device=pos_probs.device)
 
-            # Binary cross-entropy loss for the graph
-            loss = F.binary_cross_entropy(reconstructed_adj, training_graph.float(), reduction='mean')
+            # Decode probabilities for negative edges
+            neg_probs = reconstructed_adj[neg_edges[0], neg_edges[1]]
+            neg_labels = torch.zeros(neg_probs.size(0), device=neg_probs.device)
+
+            # Combine probabilities and labels
+            all_probs = torch.cat([pos_probs, neg_probs])
+            all_labels = torch.cat([pos_labels, neg_labels])
+
+            # Compute BCE loss
+            loss = F.binary_cross_entropy(all_probs, all_labels, reduction="mean")
+            print(f"Graph {i}: Loss = {loss.item()}")
             total_loss += loss
 
         # Average loss over all graphs
-        total_loss = total_loss / len(reconstructed_adjs)
-        return total_loss
+        return total_loss / len(reconstructed_adjs)

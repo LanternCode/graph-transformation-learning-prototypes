@@ -1,6 +1,8 @@
 import sys
 
 from sklearn.model_selection import train_test_split
+from torch.utils.data import random_split
+
 import hyperparameters
 import torch
 import random
@@ -251,7 +253,22 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
         )
         dataset.append(data)
 
-    return dataset
+    # Define split ratios
+    train_ratio = 0.8
+    val_ratio = 0.1
+    total_graphs = len(dataset)
+
+    # Calculate sizes for each subset
+    train_size = int(total_graphs * train_ratio)
+    val_size = int(total_graphs * val_ratio)
+    test_size = total_graphs - train_size - val_size  # Ensure all graphs are included
+
+    # Split the dataset
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset, [train_size, val_size, test_size]
+    )
+
+    return train_dataset, val_dataset, test_dataset
 
 
 def get_data(num_nodes=hyperparameters.num_nodes, missing_edges_fraction=0.1):

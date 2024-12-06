@@ -82,9 +82,16 @@ def manually_decode_all_edges(model, inference_data, num_inference_nodes, thresh
 def decode_all(model, inference_data, num_inference_nodes, threshold=0.5):
     # Step 1: Decode the edges using the model's decoder
     with torch.no_grad():
-        z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index)
-        edge_probs = model.decode_all(z)  # Predict probabilities for all possible edges
+        z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index, inference_data.batch)
+        print(f"z max: {z.max().item()}, z min: {z.min().item()}, z mean: {z.mean().item()}")
 
+        # Decode the graph
+        edge_probs = model.decode_all(z, inference_data.batch)  # Predict probabilities for all possible edges
+        edge_probs = edge_probs[0]  # Extract the single graph's adjacency matrix from the batch
+        print(f"bilinear_weight max: {model.bilinear_weight.max().item()}, min: {model.bilinear_weight.min().item()}")
+
+    print(inference_data.batch)
+    print(edge_probs)
     # Step 2: Threshold the adjacency matrix
     binary_adj_matrix = (edge_probs > threshold).float()
 
@@ -113,6 +120,9 @@ def decode_all(model, inference_data, num_inference_nodes, threshold=0.5):
     print(f"How many edges you removed from H to get G: {len(missing_edges)}")
     print(f"How many edges were added (or fall above the threshold) in C(G): {len(edge_list)-inference_data.edge_index.shape[1]}")
     print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
+    print(f"Maximum probability in edge_probs: {edge_probs.max().item()}")
+    print(f"Minimum probability in edge_probs: {edge_probs.min().item()}")
+    print(f"Mean probability in edge_probs: {edge_probs.mean().item()}")
 
 def validate_symmetric_closure(edge_list):
     # Convert the list of edges to a set for fast lookup
