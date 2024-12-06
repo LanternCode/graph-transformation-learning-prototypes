@@ -99,3 +99,35 @@ class DirectedGAEGCN(torch.nn.Module):
 
         # Average loss over all graphs
         return total_loss / len(reconstructed_adjs)
+
+    def alternative_loss(self, reconstructed_adjs, pos_edge_indices, neg_edge_indices):
+        """
+        Alternative loss function that computes the average scores for positive and negative samples
+        and uses these to compute a simple loss.
+
+        Args:
+            reconstructed_adjs (list of tensors): Reconstructed adjacency matrices from the model.
+            training_graphs (list of tensors): Ground truth adjacency matrices.
+            pos_edge_indices (list of tensors): Indices of positive edges for each graph.
+            neg_edge_indices (list of tensors): Indices of negative edges for each graph.
+
+        Returns:
+            torch.Tensor: Loss value.
+        """
+        total_loss = 0
+
+        for reconstructed_adj, pos_indices, neg_indices in zip(reconstructed_adjs, pos_edge_indices, neg_edge_indices):
+            # Get the scores for positive and negative samples
+            pos_scores = reconstructed_adj[pos_indices]
+            neg_scores = reconstructed_adj[neg_indices]
+
+            # Compute the averages
+            avg_pos_score = pos_scores.mean()
+            avg_neg_score = neg_scores.mean()
+
+            # Compute the loss: 1 - average positive score + average negative score
+            loss = (1 - avg_pos_score) + avg_neg_score
+            total_loss += loss
+
+        # Return the average loss across all graphs in the batch
+        return total_loss / len(reconstructed_adjs)

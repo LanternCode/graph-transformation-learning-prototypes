@@ -48,6 +48,7 @@ def train_gae_gcn():
 
             # Compute loss
             loss = model.compute_loss(fully_decoded_graph, training_graphs, pos_edge_indices, neg_edge_indices)
+            # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
 
             # Propagate loss
             loss.backward()
@@ -66,6 +67,7 @@ def train_gae_gcn():
                 pos_edge_indices = [torch.where(training_graph > 0) for training_graph in training_graphs]
                 neg_edge_indices = [torch.where(training_graph == 0) for training_graph in training_graphs]
                 loss = model.compute_loss(decoded_graph, training_graphs, pos_edge_indices, neg_edge_indices)
+                # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
                 total_val_loss += loss.item()
 
         # Print the loss for monitoring
@@ -134,6 +136,7 @@ def test_model(model, test_loader, device):
 
             # Compute loss for the batch
             loss = model.compute_loss(fully_decoded_graph, test_graphs, pos_edge_indices, neg_edge_indices)
+            # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
             total_test_loss += loss.item()
 
             # Compute accuracy
