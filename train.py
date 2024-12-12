@@ -9,79 +9,28 @@ from model_gae_gin import DirectedGAEGIN
 
 
 def train_gae_gcn():
-    # Instantiate the model and the optimiser
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
+    model = DirectedGAEGCN(out_channels=hyperparameters.out_channels,
+                           hidden_channels=hyperparameters.hidden_channels,
                            num_nodes=hyperparameters.num_nodes, device=device)
     optimiser = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
 
-    # Generate and load a dataset of 1000 graphs
     train_dataset, val_dataset, test_dataset = generate_graph_dataset(num_graphs=hyperparameters.num_graphs, min_nodes=30, max_nodes=3000)
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=collate_to_device)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
 
-    # Training loop
     for epoch in range(hyperparameters.epochs + 1):
-        model.train()
-        total_loss = 0
-        for batch in train_loader:
-            # Move the batch to GPU and fetch the necessary attributes
-            batch = batch.to(device)
-            edge_index_in = batch.incoming_edge_index
-            edge_index_out = batch.outgoing_edge_index
-            batch_idx = batch.batch
-
-            # Encode the graph
-            optimiser.zero_grad()
-            z = model.encode(edge_index_in, edge_index_out, batch_idx)
-
-            # Decode graph for supervised task (predict edges using the removed edges as evaluation set)
-            fully_decoded_graph = model.decode_all(z, batch_idx)
-
-            # Obtain ground-truth adjacency matrices
-            training_graphs = [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)]
-
-            # Extract positive and negative edges for each graph
-            pos_edge_indices = [torch.where(training_graph > 0) for training_graph in training_graphs]
-            neg_edge_indices = [torch.where(training_graph == 0) for training_graph in training_graphs]
-
-            # Compute loss
-            loss = model.compute_loss(fully_decoded_graph, training_graphs, pos_edge_indices, neg_edge_indices)
-            # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
-
-            # Propagate loss
-            loss.backward()
-            optimiser.step()
-            total_loss += loss.item()
-
-        # Validation phase
-        model.eval()
-        total_val_loss = 0
-        with torch.no_grad():
-            for batch in val_loader:
-                batch = batch.to(device)
-                z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
-                decoded_graph = model.decode_all(z, batch.batch)
-                training_graphs = [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)]
-                pos_edge_indices = [torch.where(training_graph > 0) for training_graph in training_graphs]
-                neg_edge_indices = [torch.where(training_graph == 0) for training_graph in training_graphs]
-                loss = model.compute_loss(decoded_graph, training_graphs, pos_edge_indices, neg_edge_indices)
-                # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
-                total_val_loss += loss.item()
-
-        # Print the loss for monitoring
-        if epoch % hyperparameters.print_loss_every_n_epochs == 0:
-            avg_train_loss = total_loss / len(train_loader)
-            avg_val_loss = total_val_loss / len(val_loader)
+        avg_train_loss = train_epoch(model, train_loader, optimiser, device, epoch)
+        avg_val_loss = evaluate(model, val_loader, device)
+        if epoch % 25 == 0:
             print(f"Epoch {epoch + 1} Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
-    testing_loss, testing_accuracy = test_model(model, test_loader, device)
-    print(f"Test Loss: {testing_loss:.4f}, Test Accuracy: {testing_accuracy:.4f}")
+    test_loss, test_accuracy = test_model(model, test_loader, device)
+    print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
-    # Save the trained model
-    torch.save(model.state_dict(), 'trained_many_gae_gcn.pth')
-    print("Model saved to 'trained_many_gae_gcn.pth'")
+    torch.save(model.state_dict(), 'model_gcn_altloss.pth')
+    print("Model saved to 'model_gcn_altloss.pth'")
 
 
 # Collate a dataset batch to GPU when processing it
@@ -113,6 +62,85 @@ def get_training_adj(batch, graph_id):
     return adj_matrix
 
 
+def prepare_edge_indices(batch):
+    """Prepare edge indices for a batch of graphs."""
+    pos_edge_indices = []
+    neg_edge_indices = []
+    removed_edge_indices = []
+
+    training_graphs = [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)]
+
+    for graph_id, training_graph in enumerate(training_graphs):
+        # Positive and negative edge indices
+        pos_indices = torch.where(training_graph > 0)
+        neg_indices = torch.where(training_graph == 0)
+        pos_edge_indices.append(pos_indices)
+        neg_edge_indices.append(neg_indices)
+
+        # Removed edge indices
+        node_mask = batch.batch == graph_id
+        node_indices = torch.where(node_mask)[0]
+        global_to_local = {global_idx.item(): local_idx for local_idx, global_idx in enumerate(node_indices)}
+
+        edge_mask = node_mask[batch.removed_edge_index[0]] & node_mask[batch.removed_edge_index[1]]
+        filtered_edges = batch.removed_edge_index[:, edge_mask]
+
+        local_edges = torch.tensor(
+            [[global_to_local[src.item()], global_to_local[dst.item()]] for src, dst in filtered_edges.t()],
+            device=batch.removed_edge_index.device
+        ).t()
+
+        removed_edge_indices.append(local_edges)
+
+    return pos_edge_indices, neg_edge_indices, removed_edge_indices
+
+
+def train_epoch(model, loader, optimiser, device, epoch):
+    model.train()
+    total_loss = 0
+    for batch in loader:
+        batch = batch.to(device)
+
+        # Encode and decode the graphs
+        z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
+        fully_decoded_graph = model.decode_all(z, batch.batch)
+
+        # Prepare edge indices
+        pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
+
+        # Compute loss and update model
+        loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch)
+        optimiser.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimiser.step()
+        total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+
+def evaluate(model, loader, device):
+    model.eval()
+    total_loss = 0
+
+    with torch.no_grad():
+        for batch in loader:
+            batch = batch.to(device)
+
+            # Encode and decode the graphs
+            z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
+            fully_decoded_graph = model.decode_all(z, batch.batch)
+
+            # Prepare edge indices
+            pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
+
+            # Compute loss
+            loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+
 def test_model(model, test_loader, device):
     model.eval()
     total_test_loss = 0
@@ -127,36 +155,26 @@ def test_model(model, test_loader, device):
             z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
             fully_decoded_graph = model.decode_all(z, batch.batch)
 
-            # Prepare ground-truth adjacency matrices
-            test_graphs = [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)]
+            # Prepare edge indices
+            pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
 
-            # Extract positive and negative edge indices
-            pos_edge_indices = [torch.where(graph > 0) for graph in test_graphs]
-            neg_edge_indices = [torch.where(graph == 0) for graph in test_graphs]
-
-            # Compute loss for the batch
-            loss = model.compute_loss(fully_decoded_graph, test_graphs, pos_edge_indices, neg_edge_indices)
-            # loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
+            # Compute loss
+            loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
             total_test_loss += loss.item()
 
             # Compute accuracy
             for reconstructed_adj, ground_truth_adj, pos_indices, neg_indices in zip(
-                fully_decoded_graph, test_graphs, pos_edge_indices, neg_edge_indices
+                fully_decoded_graph, [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)],
+                pos_edge_indices, neg_edge_indices
             ):
-                # Binary predictions for edges
                 pred_binary = (reconstructed_adj > 0.5).float()
-
-                # Compute accuracy on positive and negative edges
                 correct_pos = (pred_binary[pos_indices] == ground_truth_adj[pos_indices]).sum().item()
                 correct_neg = (pred_binary[neg_indices] == ground_truth_adj[neg_indices]).sum().item()
                 total_correct += correct_pos + correct_neg
-
-                # Total edges
                 total_edges += len(pos_indices[0]) + len(neg_indices[0])
 
     avg_test_loss = total_test_loss / len(test_loader)
     test_accuracy = total_correct / total_edges
-
     return avg_test_loss, test_accuracy
 
 

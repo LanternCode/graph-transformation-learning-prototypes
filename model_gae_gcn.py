@@ -13,8 +13,8 @@ class DirectedGAEGCN(torch.nn.Module):
         self.node_embeddings = nn.Parameter(torch.randn(num_nodes, hidden_channels, device=device))
 
         # Separate GCNs for incoming and outgoing edges
-        self.gcn_in = GCNConv(hidden_channels, out_channels).to(device)
-        self.gcn_out = GCNConv(hidden_channels, out_channels).to(device)
+        self.gcn_in = GCNConv(hidden_channels, out_channels, add_self_loops=False, bias=True).to(device)
+        self.gcn_out = GCNConv(hidden_channels, out_channels, add_self_loops=False, bias=True).to(device)
 
         # Weight matrix for bilinear decoding
         self.bilinear_weight = torch.nn.Parameter(torch.randn(out_channels, out_channels, device=device))
@@ -29,7 +29,13 @@ class DirectedGAEGCN(torch.nn.Module):
         edge_index_in = edge_index_in.to(device)
         edge_index_out = edge_index_out.to(device)
 
-        # Encode
+        max_node = node_embeddings_batch.size(0)  # Total nodes in batch
+        if edge_index_in.max() >= max_node or edge_index_in.min() < 0:
+            print(f"Invalid indices in edge_index_in: {edge_index_in}")
+        if edge_index_out.max() >= max_node or edge_index_out.min() < 0:
+            print(f"Invalid indices in edge_index_out: {edge_index_out}")
+
+        # Debugging node embeddings and GCN layers
         z_in = self.gcn_in(node_embeddings_batch, edge_index_in)
         z_out = self.gcn_out(node_embeddings_batch, edge_index_out)
         return z_in + z_out
@@ -73,8 +79,6 @@ class DirectedGAEGCN(torch.nn.Module):
         Returns:
             torch.Tensor: The average loss over all graphs.
         """
-
-
         total_loss = 0
 
         for i, (reconstructed_adj, training_graph, pos_edges, neg_edges) in enumerate(
@@ -94,39 +98,51 @@ class DirectedGAEGCN(torch.nn.Module):
 
             # Compute BCE loss
             loss = F.binary_cross_entropy(all_probs, all_labels, reduction="mean")
-            print(f"Graph {i}: Loss = {loss.item()}")
             total_loss += loss
 
         # Average loss over all graphs
         return total_loss / len(reconstructed_adjs)
 
-    def alternative_loss(self, reconstructed_adjs, pos_edge_indices, neg_edge_indices):
+    def alternative_loss(self, reconstructed_adjs, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch = 1):
         """
-        Alternative loss function that computes the average scores for positive and negative samples
-        and uses these to compute a simple loss.
+        Simplified loss function to compute loss based on positive, negative, and removed edges.
 
         Args:
             reconstructed_adjs (list of tensors): Reconstructed adjacency matrices from the model.
-            training_graphs (list of tensors): Ground truth adjacency matrices.
             pos_edge_indices (list of tensors): Indices of positive edges for each graph.
             neg_edge_indices (list of tensors): Indices of negative edges for each graph.
+            removed_edge_indices (list of tensors): Indices of removed edges for each graph.
 
         Returns:
-            torch.Tensor: Loss value.
+            torch.Tensor: Average loss across all graphs in the batch.
         """
         total_loss = 0
 
-        for reconstructed_adj, pos_indices, neg_indices in zip(reconstructed_adjs, pos_edge_indices, neg_edge_indices):
-            # Get the scores for positive and negative samples
+        for reconstructed_adj, pos_indices, neg_indices, removed_indices in zip(
+                reconstructed_adjs, pos_edge_indices, neg_edge_indices, removed_edge_indices):
+
+            # Validate indices
+            max_index = reconstructed_adj.size(0) - 1
+            if (pos_indices[0].max() > max_index or pos_indices[1].max() > max_index or
+                    neg_indices[0].max() > max_index or neg_indices[1].max() > max_index or
+                    removed_indices[0].max() > max_index or removed_indices[1].max() > max_index):
+                raise ValueError(f"Invalid edge indices detected! Check your dataset and mappings.")
+
+            # Compute scores for positive, negative, and removed edges
             pos_scores = reconstructed_adj[pos_indices]
             neg_scores = reconstructed_adj[neg_indices]
+            removed_scores = reconstructed_adj[removed_indices]
 
             # Compute the averages
             avg_pos_score = pos_scores.mean()
             avg_neg_score = neg_scores.mean()
+            avg_removed_score = removed_scores.mean()
 
-            # Compute the loss: 1 - average positive score + average negative score
-            loss = (1 - avg_pos_score) + avg_neg_score
+            if epoch % 25 == 0:
+                print(f"Epoch {epoch + 1} avg_pos_score: {avg_pos_score:.4f}, avg_neg_score: {avg_neg_score:.4f}, avg_removed_score: {avg_removed_score:.4f}")
+
+            # Compute the loss: encourage high positive scores, low negative scores, and high removed scores
+            loss = (1 - avg_pos_score) + avg_neg_score + (1 - avg_removed_score)
             total_loss += loss
 
         # Return the average loss across all graphs in the batch

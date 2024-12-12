@@ -171,70 +171,44 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
         missing_edges_fraction (float): Fraction of edges to remove for missing edges.
 
     Returns:
-        dataset (list[Data]): A list of PyG Data objects, one per graph.
+        train_dataset, val_dataset, test_dataset: Split datasets for training, validation, and testing.
     """
     dataset = []
 
     for _ in range(num_graphs):
-        # Randomly determine the number of nodes for this graph
         num_nodes = random.randint(min_nodes, max_nodes)
 
-        # Step 1: Generate symmetric closure edges
-        edges = []
-        for _ in range(num_nodes):
-            u = random.randint(0, num_nodes - 1)
-            v = random.randint(0, num_nodes - 1)
-
+        # Step 1: Generate edges
+        edges = set()
+        while len(edges) < num_nodes * 2:
+            u, v = random.randint(0, num_nodes - 1), random.randint(0, num_nodes - 1)
             if u != v:
-                if [u, v] not in edges and [v, u] not in edges:  # Ensure no duplicates
-                    edges.append([u, v])  # Directed edge (u -> v)
-                    edges.append([v, u])  # Symmetric closure (v -> u)
-
-        # Convert edge list to tensor
+                edges.add((min(u, v), max(u, v)))
+        edges = list(edges)
         edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
 
-        # Calculate the number of symmetric edges
+        # Step 2: Remove a fraction of edges
         num_edges = edge_index.size(1)
-
-        # Calculate the number of edges to remove for validation/testing
         num_missing_edges = int(num_edges * missing_edges_fraction)
+        missing_indices = random.sample(range(num_edges), num_missing_edges)
 
-        # Fix: Track symmetric pairs to handle edge removal safely
-        symmetric_pairs = {}
-        for i in range(0, edge_index.size(1), 2):
-            u, v = edge_index[:, i].tolist()
-            symmetric_pairs[(u, v)] = i
-            symmetric_pairs[(v, u)] = i + 1
-
-        # Randomly sample edges to remove
-        missing_indices = random.sample(range(0, num_edges, 2), num_missing_edges // 2)
-
-        # Create a mask to mark edges to keep
         mask = torch.ones(num_edges, dtype=torch.bool)
-
-        for idx in missing_indices:
-            u, v = edge_index[:, idx].tolist()
-            # Use the mapping to remove both symmetric edges
-            if (u, v) in symmetric_pairs:
-                mask[symmetric_pairs[(u, v)]] = False
-            if (v, u) in symmetric_pairs:
-                mask[symmetric_pairs[(v, u)]] = False
-
-        # Apply mask to get the final edge indices
+        mask[missing_indices] = False
         edges_after_removal = edge_index[:, mask]
+        removed_edges = edge_index[:, ~mask]
 
-        # Split into incoming and outgoing edges
-        outgoing_edge_index = edges_after_removal
-        incoming_edge_index = torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0)
+        # Validate removed edges
+        assert removed_edges[0].max() < num_nodes and removed_edges[1].max() < num_nodes, \
+            "Removed edge indices exceed valid node range."
 
-        # Generate negative samples
-        neg_edges = []
-        while len(neg_edges) < len(missing_indices):
-            u = random.randint(0, num_nodes - 1)
-            v = random.randint(0, num_nodes - 1)
-            if u != v and [u, v] not in edges and [v, u] not in edges:
-                neg_edges.append([u, v])
-
+        # Step 3: Generate negative samples
+        neg_edges = set()
+        all_existing_edges = set(map(tuple, edges)).union(set(map(tuple, removed_edges.t().tolist())))
+        while len(neg_edges) < edges_after_removal.size(1):
+            u, v = random.randint(0, num_nodes - 1), random.randint(0, num_nodes - 1)
+            if u != v and (min(u, v), max(u, v)) not in all_existing_edges:
+                neg_edges.add((u, v))
+        neg_edges = list(neg_edges)
         neg_edge_index = torch.tensor(neg_edges, dtype=torch.long).t().contiguous()
 
         # Combine positive and negative samples
@@ -244,29 +218,30 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
 
         # Create the Data object
         data = Data(
-            x=torch.ones(num_nodes, 1),  # Dummy node features
-            train_edge_index=train_edge_index,  # Training edge indices
-            train_edge_labels=train_edge_labels,  # Training edge labels
-            incoming_edge_index=incoming_edge_index,  # Incoming edges
-            outgoing_edge_index=outgoing_edge_index,  # Outgoing edges
-            edge_index=edge_index  # All edges
+            x=torch.ones(num_nodes, 1),
+            train_edge_index=train_edge_index,
+            train_edge_labels=train_edge_labels,
+            edge_index=edges_after_removal,
+            removed_edge_index=removed_edges,
+            outgoing_edge_index=edges_after_removal,
+            incoming_edge_index=torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0)
         )
         dataset.append(data)
 
-    # Define split ratios
-    train_ratio = 0.8
-    val_ratio = 0.1
+    train_ratio, val_ratio = 0.8, 0.1
     total_graphs = len(dataset)
-
-    # Calculate sizes for each subset
     train_size = int(total_graphs * train_ratio)
     val_size = int(total_graphs * val_ratio)
-    test_size = total_graphs - train_size - val_size  # Ensure all graphs are included
+    test_size = total_graphs - train_size - val_size
 
-    # Split the dataset
     train_dataset, val_dataset, test_dataset = random_split(
         dataset, [train_size, val_size, test_size]
     )
+
+    for i, graph in enumerate(dataset):
+        assert graph.edge_index.max() < graph.x.size(0), f"Graph {i}: edge_index contains invalid nodes!"
+        assert graph.removed_edge_index.max() < graph.x.size(
+            0), f"Graph {i}: removed_edge_index contains invalid nodes!"
 
     return train_dataset, val_dataset, test_dataset
 

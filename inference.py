@@ -17,7 +17,8 @@ model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channel
 
 # Load the saved model state
 #model.load_state_dict(torch.load('trained_gae_gcn.pth'))
-model.load_state_dict(torch.load('trained_many_gae_gcn.pth'))
+#model.load_state_dict(torch.load('trained_many_gae_gcn.pth'))
+model.load_state_dict(torch.load('trained_many_gae_gcn_alt_loss.pth'))
 #model.load_state_dict(torch.load('trained_gae_gin.pth'))
 
 # Set the model to evaluation mode and perform regular or fully connected decoding
