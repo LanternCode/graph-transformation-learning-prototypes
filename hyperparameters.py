@@ -2,8 +2,8 @@ in_channels = 32  # Node features dimensionality - currently learned in both mod
 hidden_channels = 256
 out_channels = 64
 
-epochs = 1000
-num_graphs = 1000  # The number of synthetic graphs to generate
+epochs = 1001
+num_graphs = 30  # The number of synthetic graphs to generate
 num_nodes = 3000
 
 learning_rate = 0.01

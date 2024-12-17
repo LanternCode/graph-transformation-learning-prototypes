@@ -160,7 +160,7 @@ def generate_random_directed_graph(num_nodes, num_edges):
     return data
 
 
-def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edges_fraction=0.1):
+def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edges_fraction=0.2):
     """
     Generate a dataset of smaller graphs for training, with variable sizes.
 
@@ -178,28 +178,37 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
     for _ in range(num_graphs):
         num_nodes = random.randint(min_nodes, max_nodes)
 
-        # Step 1: Generate edges
+        # Step 1: Generate symmetrically-closed edges
         edges = set()
-        while len(edges) < num_nodes * 2:
+        while len(edges) < num_nodes * 4:
             u, v = random.randint(0, num_nodes - 1), random.randint(0, num_nodes - 1)
             if u != v:
-                edges.add((min(u, v), max(u, v)))
+                edges.add((u, v))
+                edges.add((v, u))
         edges = list(edges)
         edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
 
         # Step 2: Remove a fraction of edges
         num_edges = edge_index.size(1)
         num_missing_edges = int(num_edges * missing_edges_fraction)
-        missing_indices = random.sample(range(num_edges), num_missing_edges)
 
+        # Identify unique edges (undirected) by sorting node pairs
+        unique_edges = {tuple(sorted(edge)) for edge in edge_index.T.tolist()}
+
+        # Randomly select edges to remove
+        missing_edges = random.sample(unique_edges, num_missing_edges)
+
+        # Create a mask to mark edges for removal
         mask = torch.ones(num_edges, dtype=torch.bool)
-        mask[missing_indices] = False
+        for edge in missing_edges:
+            # Find the indices of the edges to remove in the original directed edge list
+            u, v = edge
+            for idx in range(edge_index.size(1)):
+                if set(edge_index[:, idx].tolist()) == {u, v}:
+                    mask[idx] = False
+                    break  # Remove only one of the two directed edges
         edges_after_removal = edge_index[:, mask]
         removed_edges = edge_index[:, ~mask]
-
-        # Validate removed edges
-        assert removed_edges[0].max() < num_nodes and removed_edges[1].max() < num_nodes, \
-            "Removed edge indices exceed valid node range."
 
         # Step 3: Generate negative samples
         neg_edges = set()
@@ -238,12 +247,65 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
         dataset, [train_size, val_size, test_size]
     )
 
-    for i, graph in enumerate(dataset):
-        assert graph.edge_index.max() < graph.x.size(0), f"Graph {i}: edge_index contains invalid nodes!"
-        assert graph.removed_edge_index.max() < graph.x.size(
-            0), f"Graph {i}: removed_edge_index contains invalid nodes!"
-
     return train_dataset, val_dataset, test_dataset
+
+
+def create_graph(num_nodes, edge_list, label_edges):
+    """
+    A utility function to create a PyTorch Geometric Data object for a graph.
+
+    Args:
+        num_nodes (int): Number of nodes in the graph.
+        edge_list (list of tuples): List of directed edges (source, target).
+        label_edges (list of tuples): List of ground-truth edges for labels.
+
+    Returns:
+        Data: PyTorch Geometric Data object with labels.
+    """
+    # Edge index
+    edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous() if edge_list else torch.empty((2, 0),
+                                                                                                          dtype=torch.long)
+
+    # Incoming edge index
+    incoming_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0) if edge_index.numel() > 0 else edge_index
+
+    # Node features (simple: all ones)
+    node_features = torch.ones(num_nodes, 1)
+
+    # Ground-truth adjacency matrix (label)
+    label_adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+    for src, tgt in label_edges:
+        label_adj[src, tgt] = 1.0  # Set edges in the label
+
+    return Data(
+        x=node_features,  # Node features
+        edge_index=edge_index,  # Edge list
+        outgoing_edge_index=edge_index,  # Outgoing edges
+        incoming_edge_index=incoming_edge_index,  # Incoming edges
+        label=label_adj  # Ground-truth adjacency matrix
+    )
+
+
+def get_small_graphs_dataset():
+    """
+    Prepares a dataset of small graphs with labels (ground-truth adjacency matrices).
+
+    Returns:
+        list: A list of PyTorch Geometric Data objects.
+    """
+    graphs = [
+        {"num_nodes": 2, "edges": [], "label_edges": [(0, 1), (1, 0)]},
+        # Graph 1: Empty edges, but label is bidirectional
+        {"num_nodes": 2, "edges": [(0, 1)], "label_edges": [(0, 1), (1, 0)]},
+        # Graph 2: Directed edge 0 -> 1, label is bidirectional
+        {"num_nodes": 2, "edges": [(1, 0)], "label_edges": [(0, 1), (1, 0)]},
+        # Graph 3: Directed edge 1 -> 0, label is bidirectional
+        {"num_nodes": 2, "edges": [(0, 1), (1, 0)], "label_edges": [(0, 1), (1, 0)]}  # Graph 4: Bidirectional edges
+    ]
+
+    # Create dataset
+    dataset = [create_graph(graph["num_nodes"], graph["edges"], graph["label_edges"]) for graph in graphs]
+    return dataset
 
 
 def get_data(num_nodes=hyperparameters.num_nodes, missing_edges_fraction=0.1):

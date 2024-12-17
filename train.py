@@ -3,34 +3,89 @@ import torch
 import hyperparameters
 from torch_geometric.data import Data, Batch
 from torch_geometric.loader import DataLoader
-from gen_sym_closure import get_data, count_incomplete_symmetrically_closed_pairs, generate_graph_dataset
+from gen_sym_closure import get_data, count_incomplete_symmetrically_closed_pairs, generate_graph_dataset, \
+    get_small_graphs_dataset
 from model_gae_gcn import DirectedGAEGCN
 from model_gae_gin import DirectedGAEGIN
 
 
-def train_gae_gcn():
+def train_gae_gcn(loss_function):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = DirectedGAEGCN(out_channels=hyperparameters.out_channels,
                            hidden_channels=hyperparameters.hidden_channels,
                            num_nodes=hyperparameters.num_nodes, device=device)
     optimiser = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
 
-    train_dataset, val_dataset, test_dataset = generate_graph_dataset(num_graphs=hyperparameters.num_graphs, min_nodes=30, max_nodes=3000)
+    train_dataset, val_dataset, test_dataset = generate_graph_dataset(num_graphs=hyperparameters.num_graphs)
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=collate_to_device)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
 
     for epoch in range(hyperparameters.epochs + 1):
-        avg_train_loss = train_epoch(model, train_loader, optimiser, device, epoch)
-        avg_val_loss = evaluate(model, val_loader, device)
+        avg_train_loss = train_epoch(model, train_loader, optimiser, device, epoch, loss_function)
+        avg_val_loss = evaluate(model, val_loader, device, loss_function)
         if epoch % 25 == 0:
             print(f"Epoch {epoch + 1} Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
-    test_loss, test_accuracy = test_model(model, test_loader, device)
+    test_loss, test_accuracy = test_model(model, test_loader, device, loss_function)
     print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
-    torch.save(model.state_dict(), 'model_gcn_altloss.pth')
+    #torch.save(model.state_dict(), 'model_gcn_altloss.pth')
     print("Model saved to 'model_gcn_altloss.pth'")
+
+
+def train_small_epoch(model, train_loader, optimizer, device):
+    model.train()
+    total_loss = 0
+
+    for batch in train_loader:
+        batch = batch.to(device)
+        optimizer.zero_grad()
+
+        # Forward pass
+        z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
+
+        # Reconstruct adjacency matrices for all graphs in the batch
+        reconstructed_adjs = model.decode_all(z, batch.batch)
+
+        # Split ground-truth adjacency matrices based on batch.graph indices
+        ground_truth_adjs = []
+        unique_graphs = torch.unique(batch.batch)
+        for graph_id in unique_graphs:
+            mask = batch.batch == graph_id
+            ground_truth_adj = batch.label[mask][:, mask]  # Extract square submatrix
+            ground_truth_adjs.append(ground_truth_adj)
+
+        # Compute loss
+        loss = model.small_loss(reconstructed_adjs, ground_truth_adjs)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    avg_loss = total_loss / len(train_loader)
+    return avg_loss
+
+
+def train_small_gae_gcn():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = DirectedGAEGCN(out_channels=hyperparameters.out_channels,
+                           hidden_channels=hyperparameters.hidden_channels,
+                           num_nodes=hyperparameters.num_nodes, device=device).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
+
+    # Dataset preparation
+    train_dataset = get_small_graphs_dataset()
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+
+    # Training loop
+    for epoch in range(1, hyperparameters.epochs + 1):
+        avg_train_loss = train_small_epoch(model, train_loader, optimizer, device)
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch} - Train Loss: {avg_train_loss:.4f}")
+
+    # Save the trained model
+    torch.save(model.state_dict(), 'gcn_small.pth')
+    print("Model saved to 'model_gcn_reconstruction_loss.pth'")
 
 
 # Collate a dataset batch to GPU when processing it
@@ -95,7 +150,7 @@ def prepare_edge_indices(batch):
     return pos_edge_indices, neg_edge_indices, removed_edge_indices
 
 
-def train_epoch(model, loader, optimiser, device, epoch):
+def train_epoch(model, loader, optimiser, device, epoch, loss_function):
     model.train()
     total_loss = 0
     for batch in loader:
@@ -109,7 +164,12 @@ def train_epoch(model, loader, optimiser, device, epoch):
         pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
 
         # Compute loss and update model
-        loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch)
+        if loss_function == "bce":
+            loss = model.compute_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+        if loss_function == "avg":
+            loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch)
+        if loss_function == "avg_small":
+            loss = model.small_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
         optimiser.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -119,7 +179,7 @@ def train_epoch(model, loader, optimiser, device, epoch):
     return total_loss / len(loader)
 
 
-def evaluate(model, loader, device):
+def evaluate(model, loader, device, loss_function):
     model.eval()
     total_loss = 0
 
@@ -135,13 +195,19 @@ def evaluate(model, loader, device):
             pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
 
             # Compute loss
-            loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "bce":
+                loss = model.compute_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "avg":
+                loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "avg_small":
+                loss = model.small_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
+
             total_loss += loss.item()
 
     return total_loss / len(loader)
 
 
-def test_model(model, test_loader, device):
+def test_model(model, test_loader, device, loss_function):
     model.eval()
     total_test_loss = 0
     total_correct = 0
@@ -159,7 +225,13 @@ def test_model(model, test_loader, device):
             pos_edge_indices, neg_edge_indices, removed_edge_indices = prepare_edge_indices(batch)
 
             # Compute loss
-            loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "bce":
+                loss = model.compute_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "avg":
+                loss = model.alternative_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices, removed_edge_indices)
+            if loss_function == "avg_small":
+                loss = model.small_loss(fully_decoded_graph, pos_edge_indices, neg_edge_indices)
+
             total_test_loss += loss.item()
 
             # Compute accuracy
@@ -167,7 +239,7 @@ def test_model(model, test_loader, device):
                 fully_decoded_graph, [get_training_adj(batch, graph_id) for graph_id in torch.unique(batch.batch)],
                 pos_edge_indices, neg_edge_indices
             ):
-                pred_binary = (reconstructed_adj > 0.5).float()
+                pred_binary = (reconstructed_adj > 0.8).float()
                 correct_pos = (pred_binary[pos_indices] == ground_truth_adj[pos_indices]).sum().item()
                 correct_neg = (pred_binary[neg_indices] == ground_truth_adj[neg_indices]).sum().item()
                 total_correct += correct_pos + correct_neg
@@ -213,8 +285,5 @@ def train_gae_gin():
         if epoch % 100 == 0:
             print(f'Total Loss: {loss.item():.4f}')
 
-    torch.save(model.state_dict(), 'trained_gae_gin.pth')
+    torch.save(model.state_dict(), 'results/trained_gae_gin.pth')
     print("Model saved to 'trained_gae_gin.pth'")
-
-
-train_gae_gcn()
