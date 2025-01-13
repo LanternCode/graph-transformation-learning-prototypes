@@ -23,23 +23,22 @@ def main(args):
             model = DirectedGAEGCN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
                                    num_nodes=hyperparameters.num_nodes, device=device)
             if args.lf == "avg":
-                model.load_state_dict(torch.load('trained_many_gae_gcn_alt_loss.pth'))
+                model.load_state_dict(torch.load('results/trained_many_gae_gcn_alt_loss.pth'))
             elif args.lf == "bce":
-                print("")
-                # model.load_state_dict(torch.load('trained_many_gae_gcn_alt_loss.pth'))
+                model.load_state_dict(torch.load('results/gcn_bce_avg.pth'))
             elif args.lf == "avg_small":
-                model.load_state_dict(torch.load('gcn_small.pth'))
+                model.load_state_dict(torch.load('results/gcn_small.pth'))
         elif args.model == "gin":
             model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
                                    num_nodes=hyperparameters.num_nodes)
-            model.load_state_dict(torch.load('trained_gae_gin.pth'))
+            model.load_state_dict(torch.load('results/trained_gae_gin.pth'))
 
         # Set the model to evaluation mode and perform regular or fully connected decoding
         num_inference_nodes = 1000
         inference_data = get_data(num_inference_nodes, hyperparameters.missing_edge_fraction)
         inference_data.batch = torch.zeros(inference_data.x.size(0), dtype=torch.long)  # Dummy batch
         model.eval()
-        decode_all(model, inference_data, inference_data.x.size(0), 0.1)
+        decode_all(model, inference_data, inference_data.x.size(0), 0.8)
 
 
 if __name__ == "__main__":

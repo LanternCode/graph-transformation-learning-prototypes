@@ -78,13 +78,9 @@ class DirectedGAEGCN(torch.nn.Module):
         for reconstructed_adj, pos_indices, neg_indices, removed_indices in zip(
                 reconstructed_adjs, pos_edge_indices, neg_edge_indices, removed_edge_indices):
             # Compute scores for positive, negative, and removed edges
-            pos_scores = reconstructed_adj[pos_indices]
-            neg_scores = reconstructed_adj[neg_indices]
-            removed_scores = reconstructed_adj[removed_indices]
-
-            print("pos_scores shape:", pos_scores.shape)
-            print("neg_scores shape:", neg_scores.shape)
-            print("removed_scores shape:", removed_scores.shape)
+            pos_scores = reconstructed_adj[pos_indices].flatten()
+            neg_scores = reconstructed_adj[neg_indices].flatten()
+            removed_scores = reconstructed_adj[removed_indices[0], removed_indices[1]].flatten()
 
             # Assign labels: 1 for positive/removed edges, 0 for negative edges
             pos_labels = torch.ones_like(pos_scores)

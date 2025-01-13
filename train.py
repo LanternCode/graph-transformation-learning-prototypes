@@ -30,62 +30,8 @@ def train_gae_gcn(loss_function):
     test_loss, test_accuracy = test_model(model, test_loader, device, loss_function)
     print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
-    #torch.save(model.state_dict(), 'model_gcn_altloss.pth')
+    torch.save(model.state_dict(), 'results/gcn_bce_avg.pth')
     print("Model saved to 'model_gcn_altloss.pth'")
-
-
-def train_small_epoch(model, train_loader, optimizer, device):
-    model.train()
-    total_loss = 0
-
-    for batch in train_loader:
-        batch = batch.to(device)
-        optimizer.zero_grad()
-
-        # Forward pass
-        z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
-
-        # Reconstruct adjacency matrices for all graphs in the batch
-        reconstructed_adjs = model.decode_all(z, batch.batch)
-
-        # Split ground-truth adjacency matrices based on batch.graph indices
-        ground_truth_adjs = []
-        unique_graphs = torch.unique(batch.batch)
-        for graph_id in unique_graphs:
-            mask = batch.batch == graph_id
-            ground_truth_adj = batch.label[mask][:, mask]  # Extract square submatrix
-            ground_truth_adjs.append(ground_truth_adj)
-
-        # Compute loss
-        loss = model.small_loss(reconstructed_adjs, ground_truth_adjs)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-
-    avg_loss = total_loss / len(train_loader)
-    return avg_loss
-
-
-def train_small_gae_gcn():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DirectedGAEGCN(out_channels=hyperparameters.out_channels,
-                           hidden_channels=hyperparameters.hidden_channels,
-                           num_nodes=hyperparameters.num_nodes, device=device).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
-
-    # Dataset preparation
-    train_dataset = get_small_graphs_dataset()
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-
-    # Training loop
-    for epoch in range(1, hyperparameters.epochs + 1):
-        avg_train_loss = train_small_epoch(model, train_loader, optimizer, device)
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch} - Train Loss: {avg_train_loss:.4f}")
-
-    # Save the trained model
-    torch.save(model.state_dict(), 'gcn_small.pth')
-    print("Model saved to 'model_gcn_reconstruction_loss.pth'")
 
 
 # Collate a dataset batch to GPU when processing it
@@ -248,6 +194,60 @@ def test_model(model, test_loader, device, loss_function):
     avg_test_loss = total_test_loss / len(test_loader)
     test_accuracy = total_correct / total_edges
     return avg_test_loss, test_accuracy
+
+
+def train_small_epoch(model, train_loader, optimizer, device):
+    model.train()
+    total_loss = 0
+
+    for batch in train_loader:
+        batch = batch.to(device)
+        optimizer.zero_grad()
+
+        # Forward pass
+        z = model.encode(batch.incoming_edge_index, batch.outgoing_edge_index, batch.batch)
+
+        # Reconstruct adjacency matrices for all graphs in the batch
+        reconstructed_adjs = model.decode_all(z, batch.batch)
+
+        # Split ground-truth adjacency matrices based on batch.graph indices
+        ground_truth_adjs = []
+        unique_graphs = torch.unique(batch.batch)
+        for graph_id in unique_graphs:
+            mask = batch.batch == graph_id
+            ground_truth_adj = batch.label[mask][:, mask]  # Extract square submatrix
+            ground_truth_adjs.append(ground_truth_adj)
+
+        # Compute loss
+        loss = model.small_loss(reconstructed_adjs, ground_truth_adjs)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    avg_loss = total_loss / len(train_loader)
+    return avg_loss
+
+
+def train_small_gae_gcn():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = DirectedGAEGCN(out_channels=hyperparameters.out_channels,
+                           hidden_channels=hyperparameters.hidden_channels,
+                           num_nodes=hyperparameters.num_nodes, device=device).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
+
+    # Dataset preparation
+    train_dataset = get_small_graphs_dataset()
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+
+    # Training loop
+    for epoch in range(1, hyperparameters.epochs + 1):
+        avg_train_loss = train_small_epoch(model, train_loader, optimizer, device)
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch} - Train Loss: {avg_train_loss:.4f}")
+
+    # Save the trained model
+    torch.save(model.state_dict(), 'results/gcn_small.pth')
+    print("Model saved to 'model_gcn_reconstruction_loss.pth'")
 
 
 def train_gae_gin():
