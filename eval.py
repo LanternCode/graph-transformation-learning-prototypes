@@ -121,6 +121,61 @@ def decode_all(model, inference_data, num_inference_nodes, threshold=0.5):
     print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
 
 
+def decode_and_union_all(model, inference_data, num_inference_nodes, threshold=0.5):
+    # Step 1: Decode the edges using the model's decoder
+    with torch.no_grad():
+        z = model.encode(inference_data.incoming_edge_index, inference_data.outgoing_edge_index, inference_data.batch)
+
+        # Decode the graph
+        edge_probs = model.decode_all(z, inference_data.batch)  # Predict probabilities for all possible edges
+        edge_probs = edge_probs[0]  # Extract the single graph's adjacency matrix from the batch
+
+    # Step 2: Threshold the adjacency matrix
+    binary_adj_matrix = (edge_probs > threshold).float()
+
+    # Step 3: Create an edge list from the thresholded adjacency matrix (excluding self-loops)
+    edge_list = []
+    for u in range(num_inference_nodes):
+        row = binary_adj_matrix[u].long().cpu().numpy()  # Convert only the row to NumPy
+        # Collect edges where value is 1 and exclude self-loops
+        edge_list.extend([(u, v) for v in range(num_inference_nodes) if u != v and row[v] == 1])
+
+    # Convert edge_list and edge indices to sets of tuples for union operation
+    edge_set_from_probs = set(edge_list)
+
+    # Combine the inference edge indices
+    incoming_edges = zip(inference_data.incoming_edge_index[0].tolist(),
+                         inference_data.incoming_edge_index[1].tolist())
+    outgoing_edges = zip(inference_data.outgoing_edge_index[0].tolist(),
+                         inference_data.outgoing_edge_index[1].tolist())
+
+    # Create sets from the indices
+    incoming_edge_set = set(incoming_edges)
+    outgoing_edge_set = set(outgoing_edges)
+
+    # Union all edge sets
+    final_edge_set = edge_set_from_probs | incoming_edge_set | outgoing_edge_set
+
+    # Convert back to a list if needed
+    final_edge_list = list(final_edge_set)
+
+    # Validate the symmetric closure of the edges
+    symmetric_count, symmetric_percentage = validate_symmetric_closure(final_edge_list)
+
+    print(f"Threshold: {threshold}")
+    print(f"Number of nodes: {num_inference_nodes}")
+    print(f"Number of edges in the original graph: {inference_data.edge_index.shape[1]}")
+    print(f"Shape of decoded edges: {edge_probs.shape}")
+    print(f"Number of edges after thresholding: {len(edge_list)}")
+    print(f"Number of edges after union: {len(final_edge_list)}")
+    print(f"Maximum probability in edge_probs: {edge_probs.max().item()}")
+    print(f"Minimum probability in edge_probs: {edge_probs.min().item()}")
+    print(f"Mean probability in edge_probs: {edge_probs.mean().item()}")
+    print(f"Number of symmetrical pairs: {symmetric_count}")
+    print(f"How many edges were added (or fall above the threshold) in C(G): {len(final_edge_list)-inference_data.edge_index.shape[1]}")
+    print(f"Percentage of symmetrically closed edges: {symmetric_percentage:.2f}%")
+
+
 def validate_symmetric_closure(edge_list):
     # Convert the list of edges to a set for fast lookup
     edge_set = set(edge_list)
@@ -138,6 +193,6 @@ def validate_symmetric_closure(edge_list):
 
     # Step 5: Calculate the percentage of symmetrically closed edges
     total_edges = len(edge_list)
-    symmetric_percentage = (symmetric_count * 2 / total_edges) * 100 if total_edges > 0 else 0
+    symmetric_percentage = (symmetric_count * 2 / total_edges) * 100 if total_edges > 0 else 100
 
     return symmetric_count, symmetric_percentage

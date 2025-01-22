@@ -1,7 +1,7 @@
 import argparse
 import torch
 import hyperparameters
-from eval import decode_all
+from eval import decode_all, decode_and_union_all
 from gen_sym_closure import get_data
 from model_gae_gcn import DirectedGAEGCN
 from model_gae_gin import DirectedGAEGIN
@@ -11,7 +11,7 @@ from train import train_gae_gcn, train_gae_gin, train_small_gae_gcn
 def main(args):
     if args.obj == "training":
         if args.model == "gcn":
-            if args.lf == "avg_small":
+            if args.lf == "small":
                 train_small_gae_gcn()
             else:
                 train_gae_gcn(args.lf)
@@ -26,8 +26,8 @@ def main(args):
                 model.load_state_dict(torch.load('results/trained_many_gae_gcn_alt_loss.pth'))
             elif args.lf == "bce":
                 model.load_state_dict(torch.load('results/gcn_bce_avg.pth'))
-            elif args.lf == "avg_small":
-                model.load_state_dict(torch.load('results/gcn_small.pth'))
+            elif args.lf == "small":
+                model.load_state_dict(torch.load('results/six_graphs/six_graphs.pth'))
         elif args.model == "gin":
             model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
                                    num_nodes=hyperparameters.num_nodes)
@@ -38,7 +38,11 @@ def main(args):
         inference_data = get_data(num_inference_nodes, hyperparameters.missing_edge_fraction)
         inference_data.batch = torch.zeros(inference_data.x.size(0), dtype=torch.long)  # Dummy batch
         model.eval()
-        decode_all(model, inference_data, inference_data.x.size(0), 0.8)
+
+        if args.lf == "small":
+            decode_and_union_all(model, inference_data, inference_data.x.size(0), 0.8)
+        else:
+            decode_all(model, inference_data, inference_data.x.size(0), 0.8)
 
 
 if __name__ == "__main__":
@@ -56,8 +60,8 @@ if __name__ == "__main__":
 
     # Loss function
     parser.add_argument('--lf', type=str, default='bce',
-                        choices=['bce', 'avg', 'avg_small'],
-                        help="Loss function to use (bce-based with removed_edges, average-based with removed_edges, average-based without removed_edges).")
+                        choices=['bce', 'avg', 'small'],
+                        help="Loss function to use (bce-based with removed_edges, average-based with removed_edges, small without removed_edges).")
 
     # Parse arguments
     args = parser.parse_args()

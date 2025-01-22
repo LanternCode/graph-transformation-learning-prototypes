@@ -30,8 +30,9 @@ def train_gae_gcn(loss_function):
     test_loss, test_accuracy = test_model(model, test_loader, device, loss_function)
     print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.4f}")
 
-    torch.save(model.state_dict(), 'results/gcn_bce_avg.pth')
-    print("Model saved to 'model_gcn_altloss.pth'")
+    new_model_name = hyperparameters.new_model_name
+    torch.save(model.state_dict(), 'results/'+new_model_name+'.pth')
+    print("Model saved to "+new_model_name+".pth")
 
 
 # Collate a dataset batch to GPU when processing it
@@ -242,12 +243,12 @@ def train_small_gae_gcn():
     # Training loop
     for epoch in range(1, hyperparameters.epochs + 1):
         avg_train_loss = train_small_epoch(model, train_loader, optimizer, device)
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch} - Train Loss: {avg_train_loss:.4f}")
+        if epoch % 5 == 0:
+            print(f"Epoch {epoch} Train Loss: {avg_train_loss:.4f}")
 
     # Save the trained model
-    torch.save(model.state_dict(), 'results/gcn_small.pth')
-    print("Model saved to 'model_gcn_reconstruction_loss.pth'")
+    torch.save(model.state_dict(), 'results/six_graphs/six_graphs.pth')
+    print("Model saved to 'six_graphs.pth'")
 
 
 def train_gae_gin():

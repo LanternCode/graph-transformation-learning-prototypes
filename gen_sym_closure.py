@@ -295,12 +295,11 @@ def get_small_graphs_dataset():
     """
     graphs = [
         {"num_nodes": 2, "edges": [], "label_edges": [(0, 1), (1, 0)]},
-        # Graph 1: Empty edges, but label is bidirectional
+        {"num_nodes": 2, "edges": [], "label_edges": [(0, 1), (1, 0)]},
+        {"num_nodes": 2, "edges": [], "label_edges": [(0, 1), (1, 0)]},
         {"num_nodes": 2, "edges": [(0, 1)], "label_edges": [(0, 1), (1, 0)]},
-        # Graph 2: Directed edge 0 -> 1, label is bidirectional
         {"num_nodes": 2, "edges": [(1, 0)], "label_edges": [(0, 1), (1, 0)]},
-        # Graph 3: Directed edge 1 -> 0, label is bidirectional
-        {"num_nodes": 2, "edges": [(0, 1), (1, 0)], "label_edges": [(0, 1), (1, 0)]}  # Graph 4: Bidirectional edges
+        {"num_nodes": 2, "edges": [(0, 1), (1, 0)], "label_edges": [(0, 1), (1, 0)]}
     ]
 
     # Create dataset

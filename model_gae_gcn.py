@@ -29,7 +29,7 @@ class DirectedGAEGCN(torch.nn.Module):
         edge_index_in = edge_index_in.to(device)
         edge_index_out = edge_index_out.to(device)
 
-        # Debugging node embeddings and GCN layers
+        # Encode
         z_in = self.gcn_in(node_embeddings_batch, edge_index_in)
         z_out = self.gcn_out(node_embeddings_batch, edge_index_out)
         return z_in + z_out
@@ -66,9 +66,9 @@ class DirectedGAEGCN(torch.nn.Module):
 
         Args:
             reconstructed_adjs (list of torch.Tensor): Decoded adjacency matrices.
-            training_graphs (list of torch.Tensor): Ground-truth adjacency matrices.
             pos_edge_indices (list of torch.Tensor): List of positive edge indices for each graph.
             neg_edge_indices (list of torch.Tensor): List of negative edge indices for each graph.
+            removed_edge_indices (list of torch.Tensor): List of removed edge indices for each graph.
 
         Returns:
             torch.Tensor: The average loss over all graphs.
@@ -99,7 +99,7 @@ class DirectedGAEGCN(torch.nn.Module):
         # Return the average loss across all graphs in the batch
         return total_loss / len(reconstructed_adjs)
 
-    def alternative_loss(self, reconstructed_adjs, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch = 1):
+    def alternative_loss(self, reconstructed_adjs, pos_edge_indices, neg_edge_indices, removed_edge_indices, epoch=1):
         """
         Simplified loss function to compute loss based on positive, negative, and removed edges.
 
