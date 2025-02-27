@@ -7,6 +7,7 @@ from gen_sym_closure import get_data, count_incomplete_symmetrically_closed_pair
     get_small_graphs_dataset
 from model_gae_gcn import DirectedGAEGCN
 from model_gae_gin import DirectedGAEGIN
+from utils import collate_to_device
 
 
 def train_gae_gcn(loss_function):
@@ -21,10 +22,10 @@ def train_gae_gcn(loss_function):
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=collate_to_device)
 
-    for epoch in range(hyperparameters.epochs + 1):
+    for epoch in range(hyperparameters.epochs):
         avg_train_loss = train_epoch(model, train_loader, optimiser, device, epoch, loss_function)
         avg_val_loss = evaluate(model, val_loader, device, loss_function)
-        if epoch % 25 == 0:
+        if epoch % 25 == 0 or epoch == hyperparameters.epochs - 1:
             print(f"Epoch {epoch + 1} Train Loss: {avg_train_loss:.4f}, Validation Loss: {avg_val_loss:.4f}")
 
     test_loss, test_accuracy = test_model(model, test_loader, device, loss_function)
@@ -33,13 +34,6 @@ def train_gae_gcn(loss_function):
     new_model_name = hyperparameters.new_model_name
     torch.save(model.state_dict(), 'results/'+new_model_name+'.pth')
     print("Model saved to "+new_model_name+".pth")
-
-
-# Collate a dataset batch to GPU when processing it
-def collate_to_device(data_list):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    batch = Batch.from_data_list(data_list)
-    return batch.to(device)  # Move batch to GPU
 
 
 # Fetch the ground truth (adjacency matrix) for a particular graph in the batch
@@ -243,48 +237,10 @@ def train_small_gae_gcn():
     # Training loop
     for epoch in range(1, hyperparameters.epochs + 1):
         avg_train_loss = train_small_epoch(model, train_loader, optimizer, device)
-        if epoch % 5 == 0:
+        if epoch % 10 == 0:
             print(f"Epoch {epoch} Train Loss: {avg_train_loss:.4f}")
 
     # Save the trained model
-    torch.save(model.state_dict(), 'results/six_graphs/six_graphs.pth')
-    print("Model saved to 'six_graphs.pth'")
-
-
-def train_gae_gin():
-    # Example usage
-    model = DirectedGAEGIN(out_channels=hyperparameters.out_channels, hidden_channels=hyperparameters.hidden_channels,
-                        num_nodes=hyperparameters.num_nodes)
-    model = model.to('cuda' if torch.cuda.is_available() else 'cpu')  # For running on the GPU
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.learning_rate)
-    data = get_data()
-
-    # Assuming x (node features), edge_index_in (incoming edges), edge_index_out (outgoing edges),
-    # and true_edges (ground truth for existing edges) are provided.
-    for epoch in range(hyperparameters.epochs + 1):
-        optimizer.zero_grad()
-
-        # Encode graph
-        z = model.encode(data.incoming_edge_index, data.outgoing_edge_index)
-
-        # Decode graph for reconstruction (predict existing edges)
-        reconstruction_pred = model.decode(z, data.train_edge_index)
-
-        # Decode graph for supervised task (predict edges using the removed edges as evaluation set)
-        supervised_pred = model.decode(z, data.train_edge_index)
-
-        # Compute loss
-        loss = model.total_loss(
-            reconstruction_pred, data.train_edge_labels,  # For reconstruction
-            supervised_pred, data.train_edge_labels,  # For supervised (all removed edges should exist)
-            lambda_=hyperparameters.supervised_loss_factor,  # Weight for reconstruction vs supervised loss
-            epoch_num=epoch
-        )
-
-        loss.backward()
-        optimizer.step()
-        if epoch % 100 == 0:
-            print(f'Total Loss: {loss.item():.4f}')
-
-    torch.save(model.state_dict(), 'results/trained_gae_gin.pth')
-    print("Model saved to 'trained_gae_gin.pth'")
+    new_model_name = hyperparameters.new_model_name
+    torch.save(model.state_dict(), new_model_name + '.pth')
+    print("Model saved to " + new_model_name + ".pth")

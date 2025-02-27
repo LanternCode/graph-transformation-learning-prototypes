@@ -10,11 +10,14 @@ class DirectedGAEGCN(torch.nn.Module):
         super(DirectedGAEGCN, self).__init__()
 
         # Learnable node embeddings initialized here
-        self.node_embeddings = nn.Parameter(torch.randn(num_nodes, hidden_channels, device=device))
+        self.node_embeddings = nn.Embedding(num_nodes, hidden_channels, device=device)
 
         # Separate GCNs for incoming and outgoing edges
         self.gcn_in = GCNConv(hidden_channels, out_channels, add_self_loops=False, bias=True).to(device)
         self.gcn_out = GCNConv(hidden_channels, out_channels, add_self_loops=False, bias=True).to(device)
+
+        # Projection layer for directional encoding concatenation
+        self.projection_layer = nn.Linear(2 * out_channels, out_channels, device=device)
 
         # Weight matrix for bilinear decoding
         self.bilinear_weight = torch.nn.Parameter(torch.randn(out_channels, out_channels, device=device))
@@ -22,9 +25,9 @@ class DirectedGAEGCN(torch.nn.Module):
 
     def encode(self, edge_index_in, edge_index_out, batch):
         # Ensure all tensors are on GPU
-        device = self.node_embeddings.device
+        device = self.node_embeddings.weight.device
         batch = batch.to(device)
-        node_embeddings_batch = self.node_embeddings[batch]
+        node_embeddings_batch = self.node_embeddings(batch)
         node_embeddings_batch = node_embeddings_batch.to(device)
         edge_index_in = edge_index_in.to(device)
         edge_index_out = edge_index_out.to(device)
@@ -32,7 +35,8 @@ class DirectedGAEGCN(torch.nn.Module):
         # Encode
         z_in = self.gcn_in(node_embeddings_batch, edge_index_in)
         z_out = self.gcn_out(node_embeddings_batch, edge_index_out)
-        return z_in + z_out
+        combined = torch.cat([z_in, z_out], dim=-1)
+        return self.projection_layer(combined)
 
     def decode(self, z, edge_index):
         # Bilinear decoder for directed edge prediction

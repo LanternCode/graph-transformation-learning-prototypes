@@ -2,6 +2,7 @@ import sys
 
 from sklearn.model_selection import train_test_split
 from torch.utils.data import random_split
+from torch_geometric.utils import add_self_loops
 
 import hyperparameters
 import torch
@@ -10,7 +11,7 @@ from torch_geometric.data import Data
 
 
 def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1):
-    # Step 1: Generate symmetric closure edges
+    # Generate symmetric closure edges
     edges = []
     for _ in range(num_nodes):
         u = random.randint(0, num_nodes - 1)
@@ -21,13 +22,23 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1
                 edges.append([u, v])  # Directed edge (u -> v)
                 edges.append([v, u])  # Add the reverse edge (v -> u), ensuring symmetric closure
 
-    # Convert the edge list to a memory-contiguous tensor of shape (2, num_edges)
-    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    # Identify nodes with no connections
+    connected_nodes = set()
+    for edge in edges:
+        connected_nodes.update(edge)
 
-    # Calculate the number of symmetric edges
-    num_edges = edge_index.size(1)
+    # Purge empty nodes and adjust edges, update node count
+    all_nodes = set(range(num_nodes))
+    empty_nodes = len(all_nodes - connected_nodes)
+    mapping = {node: new_id for new_id, node in enumerate(sorted(connected_nodes))}
+    filtered_edges = [[mapping[u], mapping[v]] for u, v in edges]
+    num_nodes = num_nodes - empty_nodes
+
+    # Convert the edge list to a memory-contiguous tensor of shape (2, num_edges)
+    edge_index = torch.tensor(filtered_edges, dtype=torch.long).t().contiguous()
 
     # Calculate the number of edges to remove for validation and testing
+    num_edges = edge_index.size(1)
     num_missing_edges = int(num_edges * missing_edges_fraction)
 
     # Initialize the full adjacency matrix for target labels
@@ -38,24 +49,23 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1
         u, v = edge_index[:, idx].tolist()
         ground_truth_adj_matrix[u, v] = 1
 
-    # Randomly remove one direction of each symmetric pair to simulate missing edges
-    missing_indices = random.sample(range(0, num_edges), num_missing_edges)
+    # Remove a given number of edges so the model can learn them
+    edges_as_list = list(zip(edge_index[0].tolist(), edge_index[1].tolist()))
+    removed_edges = set()
+    for _ in range(num_missing_edges):
+        while True:
+            # Randomly select an edge index to remove one direction
+            idx = random.randint(0, len(edges_as_list) - 1)
+            u, v = edges_as_list[idx]
 
-    # Create mask to remove only one edge in the symmetric pair
-    mask = torch.ones(num_edges, dtype=torch.bool)
-    removed_edges = []  # Store removed edges for later use
-    for idx in missing_indices:
-        u, v = edge_index[:, idx].tolist()  # Get node pair (u -> v)
-        # Randomly decide whether to remove (u, v) or (v, u)
-        if random.random() < 0.5:
-            mask[idx] = False  # Remove (u -> v)
-            removed_edges.append([u, v])  # Store removed edge (u -> v)
-        else:
-            mask[idx + 1] = False  # Remove (v -> u)
-            removed_edges.append([v, u])  # Store removed edge (v -> u)
+            # Ensure the reverse edge exists and hasn't been removed
+            if (v, u) in edges_as_list and (u, v) not in removed_edges:
+                edges_as_list.remove((u, v))  # Remove the selected edge (u -> v)
+                removed_edges.add((u, v))  # Mark this direction as removed
+                break
 
-    # Apply mask to get the final edge indices for training (remaining edges)
-    edges_after_removal = edge_index[:, mask]  # Remaining edges (positive samples)
+    # Convert the edge list back to an edge tensor
+    edges_after_removal = torch.tensor(edges_as_list, dtype=torch.long).t().contiguous()
 
     # Split into incoming and outgoing edge indices
     outgoing_edge_index = edges_after_removal  # Outgoing edges: (u -> v)
@@ -67,7 +77,7 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1
         u = random.randint(0, num_nodes - 1)
         v = random.randint(0, num_nodes - 1)
         # Ensure no edge exists in either direction (u -> v or v -> u)
-        if u != v and [u, v] not in edges and [v, u] not in edges:
+        if u != v and [u, v] not in filtered_edges and [v, u] not in filtered_edges:
             neg_edges.append([u, v])
 
     # Combine positive edges and negative samples into supervised training data
@@ -84,9 +94,12 @@ def generate_symmetric_closure_graph(num_nodes=12000, missing_edges_fraction=0.1
     data.incoming_edge_index = incoming_edge_index  # Target edges used when encoding
     data.outgoing_edge_index = outgoing_edge_index  # Source edges used when encoding
     data.edge_index = edge_index  # All generated edges, used during inference
+    data.empty_nodes = empty_nodes # The number of purged empty nodes
+    data.removed_edge_set = removed_edges
+    data.num_nodes = num_nodes
 
     # Target number of pairs to complete - measured alongside the MCP loss
-    #data.incomplete_closure_pairs = count_incomplete_symmetrically_closed_pairs(edges_after_removal)
+    data.incomplete_closure_pairs = count_incomplete_symmetrically_closed_pairs(edges_after_removal)
 
     return data
 
@@ -186,33 +199,50 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
                 edges.add((u, v))
                 edges.add((v, u))
         edges = list(edges)
-        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        # Identify and remove empty nodes
+        connected_nodes = set()
+        for u, v in edges:
+            connected_nodes.update([u, v])
+
+        all_nodes = set(range(num_nodes))
+        empty_nodes = len(all_nodes - connected_nodes)  # Nodes with no connections
+        num_nodes = num_nodes - empty_nodes
+
+        # Create a mapping to remove empty nodes and remap indices
+        mapping = {node: new_id for new_id, node in enumerate(sorted(connected_nodes))}
+        filtered_edges = [(mapping[u], mapping[v]) for u, v in edges]
+        edge_index = torch.tensor(filtered_edges, dtype=torch.long).t().contiguous()
 
         # Step 2: Remove a fraction of edges
         num_edges = edge_index.size(1)
         num_missing_edges = int(num_edges * missing_edges_fraction)
 
-        # Identify unique edges (undirected) by sorting node pairs
-        unique_edges = {tuple(sorted(edge)) for edge in edge_index.T.tolist()}
+        # Remove a given number of edges so the model can learn them
+        edges_as_list = list(zip(edge_index[0].tolist(), edge_index[1].tolist()))
+        removed_edges = set()
+        for _ in range(num_missing_edges):
+            while True:
+                # Randomly select an edge index to remove one direction
+                idx = random.randint(0, len(edges_as_list) - 1)
+                u, v = edges_as_list[idx]
 
-        # Randomly select edges to remove
-        missing_edges = random.sample(unique_edges, num_missing_edges)
+                # Ensure the reverse edge exists and hasn't been removed
+                if (v, u) in edges_as_list and (u, v) not in removed_edges:
+                    edges_as_list.remove((u, v))  # Remove the selected edge (u -> v)
+                    removed_edges.add((u, v))  # Mark this direction as removed
+                    break
 
-        # Create a mask to mark edges for removal
-        mask = torch.ones(num_edges, dtype=torch.bool)
-        for edge in missing_edges:
-            # Find the indices of the edges to remove in the original directed edge list
-            u, v = edge
-            for idx in range(edge_index.size(1)):
-                if set(edge_index[:, idx].tolist()) == {u, v}:
-                    mask[idx] = False
-                    break  # Remove only one of the two directed edges
-        edges_after_removal = edge_index[:, mask]
-        removed_edges = edge_index[:, ~mask]
+        # Convert the edge last back to an edge tensor
+        edges_after_removal = torch.tensor(edges_as_list, dtype=torch.long).t().contiguous()
 
         # Step 3: Generate negative samples
         neg_edges = set()
-        all_existing_edges = set(map(tuple, edges)).union(set(map(tuple, removed_edges.t().tolist())))
+        if isinstance(removed_edges, torch.Tensor):
+            all_existing_edges = set(map(tuple, edges)).union(set(map(tuple, removed_edges.t().tolist())))
+        else:
+            all_existing_edges = set(map(tuple, edges)).union(removed_edges)
+
         while len(neg_edges) < edges_after_removal.size(1):
             u, v = random.randint(0, num_nodes - 1), random.randint(0, num_nodes - 1)
             if u != v and (min(u, v), max(u, v)) not in all_existing_edges:
@@ -233,7 +263,9 @@ def generate_graph_dataset(num_graphs, min_nodes=30, max_nodes=3000, missing_edg
             edge_index=edges_after_removal,
             removed_edge_index=removed_edges,
             outgoing_edge_index=edges_after_removal,
-            incoming_edge_index=torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0)
+            incoming_edge_index=torch.stack([edges_after_removal[1], edges_after_removal[0]], dim=0),
+            empty_nodes=empty_nodes,
+            num_nodes=num_nodes
         )
         dataset.append(data)
 
@@ -254,6 +286,10 @@ def create_graph(num_nodes, edge_list, label_edges):
     """
     A utility function to create a PyTorch Geometric Data object for a graph.
 
+    Fixes:
+    - Adds self-loops if no edges exist.
+    - Ensures adjacency matrix is valid even for empty/small graphs.
+
     Args:
         num_nodes (int): Number of nodes in the graph.
         edge_list (list of tuples): List of directed edges (source, target).
@@ -262,11 +298,17 @@ def create_graph(num_nodes, edge_list, label_edges):
     Returns:
         Data: PyTorch Geometric Data object with labels.
     """
-    # Edge index
-    edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous() if edge_list else torch.empty((2, 0),
-                                                                                                          dtype=torch.long)
 
-    # Incoming edge index
+    # Handle empty edge list case safely
+    if len(edge_list) == 0:
+        edge_index = torch.arange(num_nodes).repeat(2, 1)  # Self-loops for each node
+    else:
+        edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
+
+    # Ensure the graph has at least self-loops
+    edge_index, _ = add_self_loops(edge_index, num_nodes=num_nodes)
+
+    # Incoming edge index (reversed edges)
     incoming_edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0) if edge_index.numel() > 0 else edge_index
 
     # Node features (simple: all ones)
