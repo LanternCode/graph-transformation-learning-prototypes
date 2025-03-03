@@ -7,7 +7,6 @@ from model_gae_gcn import DirectedGAEGCN
 from train_gae_gcn import train_gae_gcn, train_small_gae_gcn
 from model_gae_gin import DirectedGAEGIN
 from train_gae_gin import train_gae_gin
-from model_2_wl_gnn import train_small
 
 
 def main(args):
