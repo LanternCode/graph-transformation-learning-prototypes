@@ -3,3 +3,4 @@ torch-geometric
 numpy
 networkx
 matplotlib
+scikit-learn
