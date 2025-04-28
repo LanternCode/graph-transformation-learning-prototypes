@@ -18,8 +18,8 @@ def generate_shortcut_dataset(
     num_graphs=1000,
     min_nodes=6,
     max_nodes=140,
-    base_edge_prob=0.1,
-    shortcut_frac=0.2,
+    base_edge_prob=0.01,
+    shortcut_frac=1.0,
     graph_families=None,
     seed=None
 ):
