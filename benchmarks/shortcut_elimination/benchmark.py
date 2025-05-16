@@ -156,6 +156,7 @@ def evaluate_model(
     return {"accuracy": accuracy, "precision": precision,
             "recall": recall, "f1": f1, "auc": auc}
 
+
 class ModelAdapter:
     """
     Wrap a PyTorch model for benchmark evaluation with a user-supplied reshape.
@@ -180,7 +181,7 @@ def wrap_model(model, device=None, reshape_fn=None):
     """Return a ModelAdapter with the given reshape_fn."""
     return ModelAdapter(model, device, reshape_fn)
 
-# helper
+
 def _infer_device(model):
     try: return next(model.parameters()).device
     except StopIteration: return torch.device('cpu')
