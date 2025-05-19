@@ -95,7 +95,7 @@ if __name__ == "__main__":
 
     # 3. Collect probabilities & labels on holdout
     test_in, test_tg = generate_transitive_closure_graphs(
-        num_graphs=200, min_nodes=6, max_nodes=140, missing_pct=0.2, k=35
+        num_graphs=200, min_nodes=6, max_nodes=140, missing_pct=0.2, k=10
     )
     probs, labels = [], []
     with torch.no_grad():
