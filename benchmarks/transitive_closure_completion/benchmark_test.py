@@ -7,6 +7,7 @@ from sklearn.metrics import precision_recall_curve, auc
 from torch.utils.data import DataLoader, Dataset
 from benchmark import generate_transitive_closure_graphs, evaluate_model
 
+
 class ClosureDataset(Dataset):
     def __init__(self, inputs, targets):
         self.inputs = inputs
@@ -21,6 +22,7 @@ class ClosureDataset(Dataset):
         feat = torch.from_numpy(np.stack([I, I2], axis=-1)).float()
         targ = torch.from_numpy(self.targets[idx]).float()
         return feat, targ
+
 
 # custom collate_fn to pad each batch to its max size
 def variable_collate(batch):
@@ -41,6 +43,7 @@ def variable_collate(batch):
 
     return Fb, Tb, mask
 
+
 class PointwiseMLP(nn.Module):
     def __init__(self, hidden_dim=32):
         super().__init__()
@@ -53,6 +56,7 @@ class PointwiseMLP(nn.Module):
         x = F.relu(self.fc1(x))
         x = torch.sigmoid(self.fc2(x))
         return x.view(b, n, n)
+
 
 def train(model, loader, optimizer, epochs=50, device='cpu'):
     model.train()
@@ -73,6 +77,7 @@ def train(model, loader, optimizer, epochs=50, device='cpu'):
             total_elements += mask.sum().item()
         if ep % 10 == 0:
             print(f"Epoch {ep:03d}: Avg Loss = {total_loss/total_elements:.4f}")
+
 
 if __name__ == "__main__":
     # 1. Generate training data

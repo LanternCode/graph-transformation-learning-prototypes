@@ -3,47 +3,55 @@ k = 2
 Epoch 050: Avg Loss = 0.0091
 PR AUC = 0.879
 Max F1 = 0.903 at thresh = 0.747
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9969865672404107, 'precision': 0.8233532934131736, 'recall': 1.0, 'f1': 0.9031198686371099, 'avg_inference_time': 0.00010565757751464844}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9969865672404107, 'precision': 0.8233532934131736, 'recall': 1.0,
+'f1': 0.9031198686371099, 'avg_inference_time': 0.00010565757751464844}
 ============= TEST #2 ==============
 k = 2
 Epoch 050: Avg Loss = 0.0086
 PR AUC = 0.925
 Max F1 = 0.893 at thresh = 0.781
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9967513576415826, 'precision': 0.8074712643678161, 'recall': 1.0, 'f1': 0.8934817170111288, 'avg_inference_time': 0.00010630369186401367}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9967513576415826, 'precision': 0.8074712643678161, 'recall': 1.0,
+'f1': 0.8934817170111288, 'avg_inference_time': 0.00010630369186401367}
 ============= TEST #3 ==============
 k = 2
 Epoch 050: Avg Loss = 0.0087
 PR AUC = 0.844
 Max F1 = 0.879 at thresh = 0.777
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9968558402766861, 'precision': 0.7841726618705036, 'recall': 1.0, 'f1': 0.8790322580645161, 'avg_inference_time': 0.00010792255401611329}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9968558402766861, 'precision': 0.7841726618705036, 'recall': 1.0,
+'f1': 0.8790322580645161, 'avg_inference_time': 0.00010792255401611329}
 ============= TEST #4 ==============
 k = 2
 Epoch 050: Avg Loss = 0.0089
 PR AUC = 0.941
 Max F1 = 0.914 at thresh = 0.753
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9977410853547034, 'precision': 0.8415094339622642, 'recall': 1.0, 'f1': 0.9139344262295083, 'avg_inference_time': 0.00010639309883117676}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9977410853547034, 'precision': 0.8415094339622642, 'recall': 1.0,
+'f1': 0.9139344262295083, 'avg_inference_time': 0.00010639309883117676}
 ============= TEST #5 ==============
 k = 2
 Epoch 050: Avg Loss = 0.0086
 PR AUC = 0.918
 Max F1 = 0.904 at thresh = 0.763
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9969057810324378, 'precision': 0.8240469208211144, 'recall': 1.0, 'f1': 0.9035369774919614, 'avg_inference_time': 0.00010878682136535645}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9969057810324378, 'precision': 0.8240469208211144, 'recall': 1.0,
+'f1': 0.9035369774919614, 'avg_inference_time': 0.00010878682136535645}
 ============= TEST #6 ==============
 k = 4
 Epoch 050: Avg Loss = 0.0093
 PR AUC = 0.820
 Max F1 = 0.896 at thresh = 0.758
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9895008729342549, 'precision': 0.8160969277369104, 'recall': 0.9926315789473684, 'f1': 0.8957492282118262, 'avg_inference_time': 0.00011517763137817382}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9895008729342549, 'precision': 0.8160969277369104, 'recall': 0.9926315789473684,
+'f1': 0.8957492282118262, 'avg_inference_time': 0.00011517763137817382}
 ============= TEST #7 ==============
 k = 10
 Epoch 050: Avg Loss = 0.0085
 PR AUC = 0.856
 Max F1 = 0.909 at thresh = 0.768
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9730325510976533, 'precision': 0.8376833396013539, 'recall': 0.9938869305251885, 'f1': 0.9091243035856411, 'avg_inference_time': 0.00015763998031616212}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9730325510976533, 'precision': 0.8376833396013539, 'recall': 0.9938869305251885,
+'f1': 0.9091243035856411, 'avg_inference_time': 0.00015763998031616212}
 ============= TEST #8 ==============
 k = 35
 Epoch 050: Avg Loss = 0.0082
 PR AUC = 0.861
 Max F1 = 0.894 at thresh = 0.782
-Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9321543987176301, 'precision': 0.8100051313330816, 'recall': 0.9980554959081908, 'f1': 0.8942510675367291, 'avg_inference_time': 0.00047498345375061033}
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9321543987176301, 'precision': 0.8100051313330816, 'recall': 0.9980554959081908,
+'f1': 0.8942510675367291, 'avg_inference_time': 0.00047498345375061033}
 ====================================
