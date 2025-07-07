@@ -75,37 +75,6 @@ class SymmetricClosureMLP(nn.Module):
         return torch.sigmoid(out)
 
 
-# --- Training setup ---
-# Hyperparameters
-num_epochs = 1000
-learning_rate = 0.1
-
-# Generate training data (2x2 matrices)
-train_mats, train_targets = generate_all_2x2_matrices()
-train_dataset = GraphDataset(train_mats, train_targets)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=4, shuffle=True)
-
-# Initialize model and optimizer
-model = SymmetricClosureMLP()
-optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-
-# --- Training loop ---
-for epoch in range(num_epochs):
-    epoch_loss = 0.0
-    for x, y in train_loader:
-        optimizer.zero_grad()
-        pred = model(x)  # shape: (batch, 1, H, W)
-        # Compute per-entry error.
-        error = pred - y
-        # Backpropagate using the error directly.
-        error.backward(gradient=error)
-        optimizer.step()
-        batch_loss = error.abs().mean().item()
-        epoch_loss += batch_loss
-    if (epoch + 1) % 100 == 0:
-        print(f"Epoch {epoch + 1}/{num_epochs}, Squared Error Loss: {epoch_loss / len(train_loader):.4f}")
-
-
 # --- Testing on n x n matrices ---
 def generate_random_n_by_n_binary_matrix(num_matrices, n):
     samples = []
@@ -115,28 +84,60 @@ def generate_random_n_by_n_binary_matrix(num_matrices, n):
     return samples
 
 
-test_samples = generate_random_n_by_n_binary_matrix(1000, 1000)
+if __name__ == '__main__':
+    # --- Training setup ---
+    # Hyperparameters
+    num_epochs = 1000
+    learning_rate = 0.1
 
-# Evaluate the model on the test samples
-total_error_count = 0
-total_elements = 0  # To count all possible guesses
-model.eval()
-with torch.no_grad():
-    for test_mat in test_samples:
-        expected = symmetric_closure(test_mat)
-        # Prepare input: add batch and channel dimensions -> shape (1, 1, n, n)
-        test_input = test_mat.unsqueeze(0).unsqueeze(0)
-        pred = model(test_input).squeeze(0).squeeze(0)  # shape: (n, n)
-        # Threshold prediction at 0.5 to obtain a binary output
-        pred_binary = (pred > 0.5).float()
-        error_matrix = pred_binary - expected
-        error_count = np.count_nonzero(error_matrix)
+    # Generate training data (2x2 matrices)
+    train_mats, train_targets = generate_all_2x2_matrices()
+    train_dataset = GraphDataset(train_mats, train_targets)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=4, shuffle=True)
 
-        total_error_count += error_count
-        total_elements += expected.numel()
+    # Initialize model and optimizer
+    model = SymmetricClosureMLP()
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
-total_correct_count = total_elements - total_error_count
+    # --- Training loop ---
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        for x, y in train_loader:
+            optimizer.zero_grad()
+            pred = model(x)  # shape: (batch, 1, H, W)
+            # Compute per-entry error.
+            error = pred - y
+            # Backpropagate using the error directly.
+            error.backward(gradient=error)
+            optimizer.step()
+            batch_loss = error.abs().mean().item()
+            epoch_loss += batch_loss
+        if (epoch + 1) % 100 == 0:
+            print(f"Epoch {epoch + 1}/{num_epochs}, Squared Error Loss: {epoch_loss / len(train_loader):.4f}")
 
-print(f"\nTotal number of errors over all test samples: {total_error_count}")
-print(f"Total number of correct guesses: {total_correct_count}")
-print(f"Accuracy: {(total_correct_count / total_elements) * 100:.2f}%")
+    torch.save(model.state_dict(), "symmetric_closure_mlp.pth")
+    test_samples = generate_random_n_by_n_binary_matrix(1000, 1000)
+
+    # Evaluate the model on the test samples
+    total_error_count = 0
+    total_elements = 0  # To count all possible guesses
+    model.eval()
+    with torch.no_grad():
+        for test_mat in test_samples:
+            expected = symmetric_closure(test_mat)
+            # Prepare input: add batch and channel dimensions -> shape (1, 1, n, n)
+            test_input = test_mat.unsqueeze(0).unsqueeze(0)
+            pred = model(test_input).squeeze(0).squeeze(0)  # shape: (n, n)
+            # Threshold prediction at 0.5 to obtain a binary output
+            pred_binary = (pred > 0.5).float()
+            error_matrix = pred_binary - expected
+            error_count = np.count_nonzero(error_matrix)
+
+            total_error_count += error_count
+            total_elements += expected.numel()
+
+    total_correct_count = total_elements - total_error_count
+
+    print(f"\nTotal number of errors over all test samples: {total_error_count}")
+    print(f"Total number of correct guesses: {total_correct_count}")
+    print(f"Accuracy: {(total_correct_count / total_elements) * 100:.2f}%")
