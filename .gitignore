@@ -9,3 +9,6 @@ __pycache__
 results
 *.pt
 *.json
+*.pkl
+*.jsonl
+*.csv

@@ -8,3 +8,4 @@ rdkit
 joblib
 tqdm
 pyomo
+pandas
