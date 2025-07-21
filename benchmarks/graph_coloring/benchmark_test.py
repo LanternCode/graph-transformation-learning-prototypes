@@ -8,6 +8,7 @@ from torch_geometric.data import Data
 # Load user-trained model
 model = GCNColoring(in_dim=5, hidden_dim=64, num_colors=10)
 model.load_state_dict(torch.load("best_model.pth"))
+model.eval()
 
 
 class DSATURModel:
@@ -20,7 +21,6 @@ class DSATURModel:
         for node, color in coloring.items():
             logits[node][color] = 1.0
         return logits
-
 
 
 ext_model = DSATURModel()

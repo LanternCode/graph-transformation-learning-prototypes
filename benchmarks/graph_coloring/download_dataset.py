@@ -1,11 +1,6 @@
 import glob
 import os
 import urllib.request
-import json
-import shutil
-import networkx as nx
-from typing import Dict, Tuple, List
-from pathlib import Path
 
 # List of .col files to download
 FILES = [
