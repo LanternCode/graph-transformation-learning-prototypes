@@ -12,3 +12,7 @@ results
 *.pkl
 *.jsonl
 *.csv
+*.txt
+*.gz
+*.col
+*.edgelist
