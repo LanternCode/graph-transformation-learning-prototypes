@@ -10,3 +10,5 @@ tqdm
 pyomo
 pandas
 python-louvain
+torch-sparse
+transformers
