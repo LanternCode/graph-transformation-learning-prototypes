@@ -27,7 +27,7 @@ def batch_encode(texts, batch_size=64):
 
 
 def encode(df):
-    # map strings → numeric IDs for head, relation, tail
+    # map strings -> numeric IDs for head, relation, tail
     return df.assign(
         h_id = df['h'].map(node2id),
         r_id = df['r'].map(relation2id),
@@ -42,11 +42,11 @@ class EdgeClassifierGNN(torch.nn.Module):
         self.sage1 = SAGEConv(in_dim, hidden_dim)
         self.sage2 = SAGEConv(hidden_dim, hidden_dim)
 
-        # relation embedding layer (project 768→hidden)
+        # relation embedding layer (project 768->hidden)
         self.rel_emb = torch.nn.Embedding(num_rel, in_dim)
         self.rel_linear = torch.nn.Linear(in_dim, hidden_dim)
 
-        # final MLP: [h_src ∥ rel ∥ h_dst] → score
+        # final MLP: [h_src ∥ rel ∥ h_dst] -> score
         self.classifier = torch.nn.Sequential(
             torch.nn.Linear(hidden_dim * 3, hidden_dim),
             torch.nn.ReLU(),
@@ -60,7 +60,7 @@ class EdgeClassifierGNN(torch.nn.Module):
 
         h_src = x[edge_label_index[0]]    # [B×hidden]
         h_dst = x[edge_label_index[1]]    # [B×hidden]
-        # relation → project to hidden
+        # relation -> project to hidden
         r_hid = self.rel_linear(self.rel_emb(rel_label_index))
 
         # concat and score
@@ -71,34 +71,31 @@ class EdgeClassifierGNN(torch.nn.Module):
 def evaluate(model, df_eval, use_full_k=False):
     model.eval()
 
-    # 1) Build the batch of query edges + labels
+    # Build the batch of query edges + labels
     h_idx = torch.tensor(df_eval['h_id'].values, dtype=torch.long, device=device)
     t_idx = torch.tensor(df_eval['t_id'].values, dtype=torch.long, device=device)
     r_idx = torch.tensor(df_eval['r_id'].values, dtype=torch.long, device=device)
     labels = torch.tensor(df_eval['label'].values, dtype=torch.float, device=device)
     edge_label_index = torch.stack([h_idx, t_idx]).to(device)
 
-    # 2) Compute a flat index for every graph edge and every query edge
+    # Compute a flat index for every graph edge and every query edge
     src, dst = graph.edge_index
     N = graph.x.size(0)
     edge_flat = src * N + dst  # shape [E]
     query_flat = h_idx * N + t_idx  # shape [B]
 
-    # 3) Make a boolean mask that drops *all* query edges (and their reverse)
-    #    by checking membership in query_flat
-    #    (torch.isin is available from PyTorch 1.10+)
+    # Make a boolean mask that drops all query edges (and their reverse) by checking membership in query_flat
     mask = ~torch.isin(edge_flat, query_flat)
-    # Note: that only drops h→t; to also drop t→h, include dst*N+src:
     mask &= ~torch.isin(edge_flat, t_idx * N + h_idx)
 
-    # 4) Build the masked edge_index
+    # Build the masked edge_index
     edge_index_masked = graph.edge_index[:, mask].to(device)
 
-    # 5) Forward on the masked graph
+    # Forward on the masked graph
     logits = model(graph.x, edge_index_masked, edge_label_index, r_idx)
     probs = torch.sigmoid(logits)
 
-    # 6) Compute your metrics as before
+    # Compute the metrics
     preds_cpu = (probs > 0.5).cpu().numpy()
     labels_cpu = labels.cpu().numpy()
     probs_cpu = probs.detach().cpu().numpy()
@@ -123,7 +120,7 @@ def evaluate(model, df_eval, use_full_k=False):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # --- Download GOLD if needed ---
+    # Download GOLD if needed
     repo_dir = 'GOLD'
     if not os.path.isdir(repo_dir):
         subprocess.run(
@@ -134,7 +131,7 @@ if __name__ == "__main__":
     base = 'GOLD/dataset/conceptnet'
     noise_level = 'C-20'
 
-    # 1. Load positives
+    # Load positives
     df_train = pd.read_csv(os.path.join(base, 'train.txt'),
                            sep='\t', header=None,
                            names=['h', 'r', 't'])
@@ -147,7 +144,7 @@ if __name__ == "__main__":
     for df in (df_train, df_valid, df_test):
         df['label'] = 1
 
-    # === 2. Load the *ground-truth* noise file and mark label=0 ===
+    # Load the ground-truth noise file and mark label=0
     err_path = os.path.join(base, 'errors', f'{noise_level}-error.txt')
     df_noise = pd.read_csv(err_path,
                            sep='\t', header=None,
@@ -155,14 +152,14 @@ if __name__ == "__main__":
     df_noise = df_noise.sample(frac=1.0, random_state=42).reset_index(drop=True)
     df_noise['label'] = 0
 
-    # === 3. Split noise 80% train / 10% valid / 10% test ===
+    # Split noise 80% train / 10% valid / 10% test
     n = len(df_noise)
     cut1, cut2 = int(0.8 * n), int(0.9 * n)
     df_train_neg = df_noise.iloc[:cut1].copy()
     df_valid_neg = df_noise.iloc[cut1:cut2].copy()
     df_test_neg = df_noise.iloc[cut2:].copy()
 
-    # === 4. Balance training positives to negatives ===
+    # 4. Balance training positives to negatives
     df_train_pos_samp = df_train.sample(
         n=len(df_train_neg), random_state=42
     )
@@ -179,7 +176,7 @@ if __name__ == "__main__":
     bert_model.eval()
     bert_model.to(device)
 
-    # Make one big DataFrame of every h/t pair you'll ever use:
+    # Make one big DataFrame of every h/t pair we'll ever use:
     df_pos_all = pd.concat([df_train[['h', 't']],
                             df_valid[['h', 't']],
                             df_test[['h', 't']]], ignore_index=True)
@@ -193,17 +190,17 @@ if __name__ == "__main__":
     df_neg_rels = df_noise['r']
     all_rels = pd.concat([df_pos_rels, df_neg_rels]).unique()
 
-    # 1) Fix the node order and build the map:
+    # Fix the node order and build the map
     sorted_nodes = sorted(all_nodes)  # deterministic order
     node2id      = {n: i for i, n in enumerate(sorted_nodes)}
 
-    # 2) Batch‐encode in that same order:
+    # Batch‐encode in that same order
     node_feats = batch_encode(sorted_nodes)  # [N, 768]
 
-    # 3) Now the feature matrix lines up perfectly:
+    # Now the feature matrix lines up perfectly
     x = node_feats.to(device)
 
-    # Do the exact same for relations:
+    # Do the exact same for relations
     sorted_rels = sorted(all_rels)
     relation2id = {r: i for i, r in enumerate(sorted_rels)}
     rel_feats = batch_encode(sorted_rels)  # [R, 768]
@@ -216,13 +213,13 @@ if __name__ == "__main__":
     df_rank = pd.concat([df_all_pos, df_noise], ignore_index=True)
     df_rank_enc = encode(df_rank)
 
-    # 2) Build undirected edge_index over the entire clean graph
+    # Build undirected edge_index over the entire clean graph
     edge_idx_full = torch.cat([
         torch.tensor(df_all_pos_enc[['h_id', 't_id']].values.T, dtype=torch.long),
         torch.tensor(df_all_pos_enc[['t_id', 'h_id']].values.T, dtype=torch.long),
     ], dim=1)
 
-    # 3) Create the Data object on the full graph
+    # reate the Data object on the full graph
     graph = Data(x=x, edge_index=edge_idx_full)
     graph.edge_index = graph.edge_index.to(device)
 
@@ -232,7 +229,7 @@ if __name__ == "__main__":
 
     # Part 3: Training prep
     # TensorDataset with (h, t, r, label)
-    df_train_enc = encode(df_train)  # now has h_id, r_id, t_id
+    df_train_enc = encode(df_train)
     df_train_neg_enc = encode(df_train_neg)
     h_pos = torch.tensor(df_train_enc['h_id'].values, dtype=torch.long)
     t_pos = torch.tensor(df_train_enc['t_id'].values, dtype=torch.long)
@@ -240,7 +237,7 @@ if __name__ == "__main__":
     pos_ds = TensorDataset(h_pos, t_pos, r_pos)
     pos_loader = DataLoader(pos_ds, batch_size=256, shuffle=True)
 
-    # init model, copy rel2vec → rel_emb weights
+    # Init model, copy rel2vec -> rel_emb weights
     model = EdgeClassifierGNN(in_dim=768,
                               hidden_dim=128,
                               num_rel=len(relation2id)).to(device)
