@@ -286,7 +286,7 @@ if __name__ == "__main__":
         if val_auc > best_auc:
             best_auc = val_auc
             torch.save(model.state_dict(), f'bert_sage_best_model_{noise_level}.pth')
-            print(f"→ Saved best model (AUC={val_auc:.4f})")
+            print(f"-> Saved best model (AUC={val_auc:.4f})")
 
     print("\n=== Final test‐set evaluation ===")
     best_path = f'bert_sage_best_model_{noise_level}.pth'

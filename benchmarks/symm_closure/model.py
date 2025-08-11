@@ -116,12 +116,12 @@ if __name__ == '__main__':
             print(f"Epoch {epoch + 1}/{num_epochs}, Squared Error Loss: {epoch_loss / len(train_loader):.4f}")
 
     torch.save(model.state_dict(), "symmetric_closure_mlp.pth")
-    test_samples = generate_random_n_by_n_binary_matrix(1000, 1000)
 
     # Evaluate the model on the test samples
     total_error_count = 0
     total_elements = 0  # To count all possible guesses
     model.eval()
+    test_samples = generate_random_n_by_n_binary_matrix(1000, 1000)
     with torch.no_grad():
         for test_mat in test_samples:
             expected = symmetric_closure(test_mat)

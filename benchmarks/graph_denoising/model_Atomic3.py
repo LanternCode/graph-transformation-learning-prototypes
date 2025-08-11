@@ -2,20 +2,16 @@ import os
 import subprocess
 import torch
 import pandas as pd
-from torch.nn.utils import clip_grad_norm_
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import OneCycleLR, StepLR
 from transformers import BertTokenizer, BertModel
 from torch_geometric.data import Data
-from torch_geometric.nn import SAGEConv, RGCNConv
-from torch_geometric.nn.conv import CompGCNConv
+from torch_geometric.nn import SAGEConv
 from sklearn.metrics import classification_report, roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 
-def batch_encode(texts, batch_size=256):
+def batch_encode(texts, batch_size=128):
     embs = []
     # tqdm over the batch‐offsets
     for i in tqdm(range(0, len(texts), batch_size), desc="BERT encoding", unit="batch"):
@@ -80,70 +76,6 @@ class EdgeClassifierGNN(torch.nn.Module):
         return self.classifier(h_pair).squeeze()
 
 
-class EdgeClassifierRGCN(torch.nn.Module):
-    def __init__(self, in_dim, hidden_dim, num_rel):
-        super().__init__()
-        # two‐layer RGCN
-        self.conv1 = RGCNConv(in_dim, hidden_dim, num_rel)
-        self.conv2 = RGCNConv(hidden_dim, hidden_dim, num_rel)
-
-        # relation embedding layer (project 768→hidden) to score edges
-        self.rel_emb    = torch.nn.Embedding(num_rel, in_dim)
-        self.rel_linear = torch.nn.Linear(in_dim, hidden_dim)
-
-        # final MLP: [h_src ∥ rel ∥ h_dst] → score
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim * 3, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 1)
-        )
-
-    def forward(self, x, edge_index, edge_type,
-                      edge_label_index, rel_label_index):
-        # encode node representations with relational graph convs
-        x = self.conv1(x, edge_index, edge_type).relu()
-        x = self.conv2(x, edge_index, edge_type)
-
-        # pull out the embeddings for the query edges
-        h_src = x[edge_label_index[0]]    # [B×hidden]
-        h_dst = x[edge_label_index[1]]    # [B×hidden]
-
-        # embed & project the query relation
-        r_hid = self.rel_linear(self.rel_emb(rel_label_index))
-
-        # concatenate and score
-        h_pair = torch.cat([h_src, r_hid, h_dst], dim=1)
-        return self.classifier(h_pair).squeeze()
-
-
-class EdgeClassifierCompGCN(torch.nn.Module):
-    def __init__(self, in_dim, hidden_dim, num_rel):
-        super().__init__()
-        # CompGCN needs twice as many edge_types (for inverses)
-        self.comp1 = CompGCNConv(in_dim, hidden_dim, num_rel * 2)
-        self.comp2 = CompGCNConv(hidden_dim, hidden_dim, num_rel * 2)
-
-        # project the short relation embedding
-        self.rel_emb   = torch.nn.Embedding(num_rel, in_dim)
-        self.rel_linear= torch.nn.Linear(in_dim, hidden_dim)
-
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim * 3, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 1)
-        )
-
-    def forward(self, x, edge_index, edge_type, edge_label_index, rel_label_index):
-        x = F.relu(self.comp1(x, edge_index, edge_type))
-        x = self.comp2(x, edge_index, edge_type)
-
-        h_src = x[edge_label_index[0]]
-        h_dst = x[edge_label_index[1]]
-        r_hid = self.rel_linear(self.rel_emb(rel_label_index))
-
-        return self.classifier(torch.cat([h_src, r_hid, h_dst], 1)).squeeze()
-
-
 def evaluate(model, df_eval, use_full_k=False):
     model.eval()
 
@@ -164,8 +96,8 @@ def evaluate(model, df_eval, use_full_k=False):
     edge_index_masked = graph.edge_index[:, mask].to(device)
 
     # 3) Run the model
-    logits = model(graph.x, graph.edge_index, graph.edge_type, edge_label_index, r_idx)
-    probs = torch.sigmoid(logits)
+    logits = model(graph.x, edge_index_masked, edge_label_index, r_idx)
+    probs  = torch.sigmoid(logits)
 
     # 4) Standard classification metrics
     preds_cpu = (probs > 0.5).cpu().numpy()
@@ -209,8 +141,7 @@ if __name__ == "__main__":
         )
 
     base = 'GOLD/dataset/atomic'
-    noise_level = 'A-05'
-    NUM_EPOCHS = 41
+    noise_level = 'A-20'
 
     # Load positives
     df_train = pd.read_csv(os.path.join(base, 'train.txt'),
@@ -270,17 +201,7 @@ if __name__ == "__main__":
     MODEL_DIR = "/home/a/amm106/transformers_cache/bert-base-uncased"
     tokenizer = BertTokenizer.from_pretrained(MODEL_DIR, local_files_only=True)
     bert_model = BertModel.from_pretrained(MODEL_DIR, local_files_only=True)
-    for param in bert_model.parameters():
-        param.requires_grad = False
-
-    for name, param in bert_model.named_parameters():
-        # encoder.layer.8,9,10,11 + pooler
-        if name.startswith("encoder.layer.8.") \
-                or name.startswith("encoder.layer.9.") \
-                or name.startswith("encoder.layer.10.") \
-                or name.startswith("encoder.layer.11.") \
-                or name.startswith("pooler."):
-            param.requires_grad = True
+    bert_model.eval()
     bert_model.to(device)
 
     # All clean triples (pos+neg) across train/valid/test
@@ -325,20 +246,12 @@ if __name__ == "__main__":
 
     # Build PyG graph on raw positives
     df_all_pos_enc = encode(df_all_pos)
+    edge_index = torch.cat([
+        torch.tensor(df_all_pos_enc[['h_id', 't_id']].values.T, dtype=torch.long),
+        torch.tensor(df_all_pos_enc[['t_id', 'h_id']].values.T, dtype=torch.long),
+    ], dim=1).to(device)
 
-    # grab the three index tensors (R-GCN):
-    # h = torch.tensor(df_all_pos_enc['h_id'].values, dtype=torch.long, device=device)
-    # t = torch.tensor(df_all_pos_enc['t_id'].values, dtype=torch.long, device=device)
-    # r = torch.tensor(df_all_pos_enc['r_id'].values, dtype=torch.long, device=device)
-    h = torch.tensor(df_all_pos_enc.h_id.values)
-    t = torch.tensor(df_all_pos_enc.t_id.values)
-    r = torch.tensor(df_all_pos_enc.r_id.values)
-
-    # build a bidirectional edge_index:
-    edge_index = torch.cat([torch.stack([h, t]), torch.stack([t, h])], dim=1)
-    edge_type = torch.cat([r, r + 9], dim=0)
-
-    graph = Data(x=node_feats, edge_index=edge_index, edge_type=edge_type)
+    graph = Data(x=node_feats, edge_index=edge_index)
 
     # Prepare ranking set (for final eval)
     df_rank = pd.concat([df_all_pos, df_noise_all], ignore_index=True)
@@ -365,32 +278,28 @@ if __name__ == "__main__":
     pos_loader = DataLoader(pos_ds, batch_size=256, shuffle=True, pin_memory=True)
 
     # model + optimizer + AMP
-    model = EdgeClassifierRGCN(in_dim=768, hidden_dim=128, num_rel=len(relation2id)).to(device)
+    model = EdgeClassifierGNN(in_dim=768, hidden_dim=128, num_rel=len(relation2id)).to(device)
     model.rel_emb.weight.data.copy_(rel_feats.to(device))
-    trainable = list(model.parameters()) + [p for p in bert_model.parameters() if p.requires_grad]
-    optimizer = AdamW(trainable, lr=1e-3, weight_decay=1e-5)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     scaler = torch.cuda.amp.GradScaler()
     best_recall = 0.0
 
-    model.train()
-    bert_model.train()
-    for epoch in range(1, NUM_EPOCHS):
-        # Mine “hard” negatives by scoring every candidate
+    for epoch in range(1, 31):
+        # 1) mine “hard” negatives by scoring every candidate
         model.eval()
         with torch.no_grad():
             idx_pair = torch.stack([h_neg_all, t_neg_all])
-            neg_logits = model(graph.x, graph.edge_index, graph.edge_type, idx_pair, r_neg_all)
+            neg_logits = model(graph.x, graph.edge_index, idx_pair, r_neg_all)
             neg_probs = torch.sigmoid(neg_logits)
             hard_idx = torch.argsort(neg_probs, descending=True)[:P]
             hard_h_all = h_neg_all[hard_idx]
             hard_t_all = t_neg_all[hard_idx]
             hard_r_all = r_neg_all[hard_idx]
 
-        # Train with a 25 THSP% hardTHSP/THSP75THSP% random mix + BPR loss
+        # 2) train with a 25 % hard / 75 % random mix + BPR loss
         model.train()
         total_loss = 0.0
-        for i, (h_p, t_p, r_p) in enumerate(pos_loader):
+        for h_p, t_p, r_p in pos_loader:
             h_p, t_p, r_p = h_p.to(device), t_p.to(device), r_p.to(device)
             B = h_p.size(0)
             n_hard = B // 4
@@ -413,7 +322,7 @@ if __name__ == "__main__":
             t_n = torch.cat([t_hard, t_rand], dim=0)
             r_n = torch.cat([r_hard, r_rand], dim=0)
 
-            # build the full (pos+neg) batch
+            # build your full (pos+neg) batch
             h_batch = torch.cat([h_p, h_n], dim=0)
             t_batch = torch.cat([t_p, t_n], dim=0)
             r_batch = torch.cat([r_p, r_n], dim=0)
@@ -421,26 +330,17 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
-                logits = model(graph.x, graph.edge_index, graph.edge_type, edge_lab_idx, r_batch)
+                logits = model(graph.x, graph.edge_index, edge_lab_idx, r_batch)
                 pos_score = logits[:B]
                 neg_score = logits[B:]
                 margin = 0.5
                 #loss = -F.logsigmoid(pos_score - neg_score).mean() # BPR loss: −log σ( pos_score − neg_score )
-                #loss = F.softplus(neg_score - pos_score + margin).mean()
-                diff = neg_score - pos_score
-                loss = F.softplus(diff).mean()
-
-                if torch.isnan(loss):
-                    print(f"NaN loss at epoch {epoch}, batch {i}; aborting.")
-                    break
+                loss = F.softplus(neg_score - pos_score + margin).mean()
 
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
             total_loss += loss.item()
-            scheduler.step()
 
         print(f"Epoch {epoch:02d} — Loss: {total_loss:.4f}")
 
@@ -452,8 +352,6 @@ if __name__ == "__main__":
             print(f"→ Saved best model (Recall@k={val_rk:.4f})")
 
     # final test eval (full‐graph ranking)
-    model.eval()
-    bert_model.eval()
     print("\n=== Final test‐set evaluation ===")
     model.load_state_dict(torch.load(f'bert_sage_best_model_{noise_level}.pth'))
     test_auc, test_rk = evaluate(model, df_rank_enc, True)
