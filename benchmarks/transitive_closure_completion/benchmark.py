@@ -3,6 +3,8 @@ import numpy as np
 import time
 from typing import List, Tuple, Callable, Dict
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from tqdm import tqdm
+
 
 def compute_k_hop_reachability(adj: np.ndarray, k: int) -> np.ndarray:
     n = adj.shape[0]
@@ -20,7 +22,8 @@ def generate_transitive_closure_graphs(
     min_nodes: int = 6,
     max_nodes: int = 140,
     missing_pct: float = 0.2,
-    k: int = 2
+    k: int = 10,
+    expected_out_degree: Tuple[float, float] = (3.0, 6.0),
 ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     """
     Generate a benchmark dataset of directed graphs with missing k-hop transitive closure edges,
@@ -33,6 +36,8 @@ def generate_transitive_closure_graphs(
       4. Isolating closure-only edges and randomly hiding a fraction.
 
     Args:
+        expected_out_degree: up to n = 140, (4,8) works well for k = 10,
+                            (1, 2.4) for k = 3 and (8, 16) for k = 20
         num_graphs: number of graphs to generate.
         min_nodes: minimum number of nodes per graph.
         max_nodes: maximum number of nodes per graph.
@@ -43,45 +48,44 @@ def generate_transitive_closure_graphs(
         inputs: list of (n, n) float32 adjacency matrices with missing closures.
         targets: list of (n, n) float32 matrices of full closure-only edges.
     """
-    inputs: List[np.ndarray] = []
-    targets: List[np.ndarray] = []
+    inputs, targets = [], []
+    elow, ehigh = expected_out_degree
+    pbar = tqdm(total=num_graphs, unit="graph")
 
     while len(inputs) < num_graphs:
-        # 1. Sample base DAG
+        # 1) Sample base DAG with p scaled by n
         n = np.random.randint(min_nodes, max_nodes + 1)
         perm = np.random.permutation(n)
         A = np.zeros((n, n), dtype=bool)
-        p = np.random.uniform(0.1, 0.3)
+        p = np.random.uniform(elow, ehigh) / max(1, n - 1)  # ← scale by n
         for i in range(n):
             for j in range(i + 1, n):
                 if np.random.rand() < p:
                     A[perm[i], perm[j]] = True
 
-        # 2. Check longest path length and reject if > k
+        # 2) Reject if longest path > k (unchanged)
         G = nx.DiGraph(A.astype(int))
         try:
-            longest = nx.algorithms.dag.dag_longest_path_length(G)
+            if nx.algorithms.dag.dag_longest_path_length(G) > k:
+                continue
         except nx.NetworkXUnfeasible:
-            # not a DAG; should not occur, skip sample
-            continue
-        if longest > k:
             continue
 
-        # 3. Compute full k-hop closure of the base DAG
+        # 3)–(5) unchanged (closure, hide fraction, build inputs/targets)
         closure = compute_k_hop_reachability(A, k)
         closure_only = closure & (~A)
-
-        # 4. Randomly hide a fraction of closure edges
         mask = (np.random.rand(n, n) < (1 - missing_pct))
         present_closure = closure_only & mask
-
-        # 5. Build input and target
         A_input = (A | present_closure).astype(np.float32)
-        target  = closure_only.astype(np.float32)
+        target = closure_only.astype(np.float32)
 
+        A_input.setflags(write=False)
+        target.setflags(write=False)
         inputs.append(A_input)
         targets.append(target)
+        pbar.update(1)
 
+    pbar.close()
     return inputs, targets
 
 
