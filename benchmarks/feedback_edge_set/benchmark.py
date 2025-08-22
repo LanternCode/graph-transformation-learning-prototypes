@@ -2,7 +2,7 @@ import networkx as nx
 from unsupervised_model import generate_graph_pair, extract_features
 
 
-def benchmark_acyclicity(model_adapter, num_graphs=1000, epoch=0):
+def benchmark_acyclicity(model_adapter, num_graphs=1000, pct_extra=0):
     """
     Benchmarks how often an unsupervised model produces acyclic graphs.
 
@@ -10,7 +10,8 @@ def benchmark_acyclicity(model_adapter, num_graphs=1000, epoch=0):
         model_adapter (function): A function that takes (graph, features, edges)
                                   and returns a list of edges to remove.
         num_graphs (int): Number of test graphs to evaluate.
-        epoch (int): Controls graph complexity (used in edge injection).
+        pct_extra (int): Controls graph complexity by injecting a % of currently
+                                 available edges. Max 100% doubles the number.
 
     Returns:
         acyclic_count (int): Number of acyclic outputs.
@@ -18,7 +19,7 @@ def benchmark_acyclicity(model_adapter, num_graphs=1000, epoch=0):
     acyclic_count = 0
 
     for _ in range(num_graphs):
-        G, _ = generate_graph_pair(epoch)
+        G, _ = generate_graph_pair(pct_extra)
         feats, edges = extract_features(G)
 
         # Adapter: return list of edges to remove
@@ -36,7 +37,7 @@ def benchmark_acyclicity(model_adapter, num_graphs=1000, epoch=0):
     return acyclic_count
 
 
-def benchmark_supervised(model, num_graphs=1000, epoch=0):
+def benchmark_supervised(model, num_graphs=1000, pct_extra=0):
     """
     Benchmarks a supervised model by evaluating prediction accuracy and
     how often predicted edge removals result in acyclic graphs.
@@ -44,7 +45,8 @@ def benchmark_supervised(model, num_graphs=1000, epoch=0):
     Args:
         model: Trained classifier with `predict()` method.
         num_graphs: Number of test graphs to evaluate.
-        epoch: Graph complexity control (for added edges).
+        pct_extra: Controls graph complexity by injecting a % of currently
+                                 available edges. Max 100% doubles the number.
 
     Returns:
         dict with:
@@ -59,7 +61,7 @@ def benchmark_supervised(model, num_graphs=1000, epoch=0):
     acyclic_count = 0
 
     for _ in range(num_graphs):
-        G, labels = generate_graph_pair(epoch)
+        G, labels = generate_graph_pair(pct_extra)
         feats, edges = extract_features(G)
 
         # Predict labels (0 = keep, 1 = remove)

@@ -1,4 +1,3 @@
-# train/transitive_closure_train.py
 from typing import Tuple, Sequence
 import math
 import json
@@ -7,7 +6,7 @@ import torch
 from torch import optim, nn
 import torch.nn.functional as F
 
-# import your components
+# import components
 from unified_benchmark.benchmark.benchmark_manager import BenchmarkManager
 from unified_benchmark.benchmark.tasks.transitive_closure import TransitiveClosureTask
 
@@ -18,7 +17,7 @@ class RecurrentClosure(nn.Module):
     Input:  A in {0,1}^{B,N,N} (float32)
     Output: logits S_T in R^{B,N,N}
     """
-    def __init__(self, hidden=64, T=8, undirected=False, normalize=True, step_size=0.5):
+    def __init__(self, hidden=64, T=10, undirected=False, normalize=True, step_size=0.5):
         super().__init__()
         self.T = T
         self.undirected = undirected

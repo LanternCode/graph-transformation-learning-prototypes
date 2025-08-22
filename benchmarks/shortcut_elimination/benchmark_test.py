@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
-from benchmarks.shortcut_elimination.benchmark import generate_shortcut_dataset, evaluate_model
+from benchmark import generate_shortcut_dataset, evaluate_model
 
 # reproducibility
 np.random.seed(42)

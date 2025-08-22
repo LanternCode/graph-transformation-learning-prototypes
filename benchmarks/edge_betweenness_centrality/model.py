@@ -421,5 +421,6 @@ def main():
         mse, p, s = metrics
         print(f"{name:<10} {mse:<10.6f} {p:<10.4f} {s:<10.4f}")
 
+
 if __name__ == "__main__":
     main()

@@ -160,7 +160,7 @@ if __name__ == "__main__":
         batch_size=BATCH,
         shuffle=True,
         collate_fn=variable_collate,
-        pin_memory=(device.type == 'cuda')   # QoL (Fix #6)
+        pin_memory=(device.type == 'cuda')
     )
 
     # 2) Model
@@ -185,11 +185,11 @@ if __name__ == "__main__":
     probs, labels = [], []
     with torch.no_grad():
         for A, T in zip(test_in, test_tg):
-            A = A.astype(np.float32)                                 # Fix #1
-            feat_np = stack_powers(A, K)                              # Fix #4
+            A = A.astype(np.float32)
+            feat_np = stack_powers(A, K)
             feat = torch.from_numpy(feat_np).unsqueeze(0).to(device)
             logits = model(feat).squeeze(0)
-            p = torch.sigmoid(logits).cpu().numpy()                   # Fix #5
+            p = torch.sigmoid(logits).cpu().numpy()
             probs.extend(p.ravel().tolist())
             labels.extend(T.astype(np.float32).ravel().tolist())
 
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     )
     print("Evaluation metrics at F1-optimal threshold:", metrics)
 
-    # 6) Save final checkpoint that also includes the tuned threshold (QoL, Fix #6)
+    # 6) Save final checkpoint that also includes the tuned threshold
     torch.save(
         {"state_dict": model.state_dict(),
          "in_channels": K,

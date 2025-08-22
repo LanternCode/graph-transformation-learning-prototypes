@@ -396,7 +396,7 @@ if __name__ == "__main__":
         for _ in range(num_samples_per_config):
             shape_type = random.choices(
                 population=['triangle', 'square', 'pentagon', 'hexagon'],
-                weights=[1, 1, 1, 1],  # Increase the weight for pentagon
+                weights=[1, 1, 1, 1],
                 k=1)[0]
             sample = generate_sample(size, shape_type, removal_prob=0.3)
             samples.append(sample)

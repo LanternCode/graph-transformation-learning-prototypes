@@ -1,32 +1,13 @@
-import json
-import os
 import pandas as pd
-import networkx as nx
 import torch
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import StandardScaler
-from sklearn.utils import resample
 import joblib
 from torch import nn, optim
 from torch_geometric.data import Dataset, DataLoader
-from tqdm import tqdm
-
-# Load the underbalanced dataset
-balanced_path = "fillin_features_balanced.csv"
-df_balanced = pd.read_csv(balanced_path)
-
-# Split features and labels
-X = df_balanced.drop(columns=["label"]).values
-y = df_balanced["label"].values
-
-# Normalize features
-scaler = StandardScaler()
-X = scaler.fit_transform(X)
-
-# Train-test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
+import json
 
 
 # Define dataset for PyTorch
@@ -40,12 +21,6 @@ class EdgeFeatureDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
-
-
-train_dataset = EdgeFeatureDataset(X_train, y_train)
-test_dataset = EdgeFeatureDataset(X_test, y_test)
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64)
 
 
 class MLP(nn.Module):
@@ -118,16 +93,6 @@ class AutoencoderClassifier(nn.Module):
         return self.classifier(x)
 
 
-# Reuse model classes and train them
-input_dim = X.shape[1]
-models = {
-    "MLP": MLP(input_dim),
-    "CNN1D": CNN1D(input_dim),
-    "Transformer": TransformerClassifier(input_dim),
-    "Autoencoder": AutoencoderClassifier(input_dim)
-}
-
-
 def train_model(model, name):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -166,26 +131,69 @@ def train_model(model, name):
     return name, acc, report, path
 
 
-# Now retry training
-verbose_results = []
-for name, model in models.items():
-    result = train_model(model, name)
-    verbose_results.append(result)
+if __name__ == "__main__":
+    # Load the underbalanced dataset
+    balanced_path = "fillin_features_balanced.csv"
+    df_balanced = pd.read_csv(balanced_path)
 
-#print(f"Model Training: \n{verbose_results}")
+    # Split features and labels
+    X = df_balanced.drop(columns=["label"]).values
+    y = df_balanced["label"].values
 
-# Train model
-clf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced')
-clf.fit(X_train, y_train)
+    # after building df_balanced
+    feature_order = ["common_neighbors", "jaccard", "adamic_adar", "deg_u", "deg_v", "shortest_path", "cc_u", "cc_v"]
 
-# Evaluate
-y_pred = clf.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-report = classification_report(y_test, y_pred)
+    scaler = StandardScaler()
+    X = scaler.fit_transform(df_balanced[feature_order].values)
+    joblib.dump(scaler, "scaler_fillin.joblib")
+    with open("feature_order.json", "w") as f:
+        json.dump(feature_order, f)
 
-# Save model
-model_path = "random_forest_fillin.pkl"
-joblib.dump(clf, model_path)
+    # Normalize features
+    scaler = StandardScaler()
+    X = scaler.fit_transform(df_balanced[feature_order].values)
 
-print(f"Random Forest Accuracy: {accuracy:2f}")
-print(f"Random Forest Full Report: \n{report}")
+    joblib.dump(scaler, "scaler_fillin.joblib")
+    with open("feature_order.json", "w") as f:
+        json.dump(feature_order, f)
+
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
+
+    train_dataset = EdgeFeatureDataset(X_train, y_train)
+    test_dataset = EdgeFeatureDataset(X_test, y_test)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=64)
+
+    # Reuse model classes and train them
+    input_dim = X.shape[1]
+    models = {
+        "MLP": MLP(input_dim),
+        "CNN1D": CNN1D(input_dim),
+        "Transformer": TransformerClassifier(input_dim),
+        "Autoencoder": AutoencoderClassifier(input_dim)
+    }
+
+    # training
+    verbose_results = []
+    for name, model in models.items():
+        result = train_model(model, name)
+        verbose_results.append(result)
+
+    # print(f"Model Training: \n{verbose_results}")
+
+    # Train the Random Forest model
+    clf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced')
+    clf.fit(X_train, y_train)
+
+    # Evaluate
+    y_pred = clf.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred)
+
+    # Save the RF model
+    model_path = "random_forest_fillin.pkl"
+    joblib.dump(clf, model_path)
+
+    print(f"Random Forest Accuracy: {accuracy:2f}")
+    print(f"Random Forest Full Report: \n{report}")

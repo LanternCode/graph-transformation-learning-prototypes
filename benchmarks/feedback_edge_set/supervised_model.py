@@ -23,7 +23,7 @@ def edge_in_cycle(graph, edge):
 
 
 # === GRAPH GENERATION ===
-def generate_graph_pair(epoch=0):
+def generate_graph_pair(pct_extra=0):
     num_nodes = random.randint(MIN_NODES, MAX_NODES)
     tree = nx.random_unlabeled_tree(num_nodes)
     tree = nx.Graph(tree)  # Ensure undirected
@@ -36,7 +36,7 @@ def generate_graph_pair(epoch=0):
         if (i, j) not in existing and i != j
     ]
     random.shuffle(candidates)
-    num_extra = min(1 + epoch, len(base_edges))
+    num_extra = min(1 + pct_extra, len(base_edges))
     extra_edges = candidates[:num_extra]
 
     full_graph = nx.Graph()

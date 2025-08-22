@@ -16,3 +16,4 @@ results
 *.gz
 *.col
 *.edgelist
+*.joblib

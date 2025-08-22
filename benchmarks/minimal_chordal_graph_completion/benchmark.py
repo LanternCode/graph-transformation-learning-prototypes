@@ -6,6 +6,63 @@ import torch
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report, roc_auc_score
+import math
+import json
+import os
+
+
+# ---------- caching helpers ----------
+def _serialize_graph(G):
+    return {
+        "nodes": list(map(int, G.nodes())),
+        "edges": [(int(u), int(v)) for u, v in G.edges()],
+        "fill_edges": [(int(u), int(v)) for (u, v) in G.graph.get("fill_edges", [])],
+    }
+
+
+def _deserialize_graph(rec):
+    G = nx.Graph()
+    G.add_nodes_from(rec["nodes"])
+    G.add_edges_from(rec["edges"])
+    G.graph["fill_edges"] = [tuple(e) for e in rec["fill_edges"]]
+    return G
+
+
+def _generate_graphs(num_graphs, seed=None):
+    rng = random.Random(seed)
+    made = []
+    pbar = tqdm(total=num_graphs, desc="Generating test graphs")
+    while len(made) < num_graphs:
+        n = rng.randint(6, 140)
+        G = nx.erdos_renyi_graph(n, 0.3, seed=rng.randrange(1 << 30))
+        if nx.is_chordal(G):
+            continue
+        fill_edges = solve_min_fill(G)
+        if fill_edges:
+            G.graph["fill_edges"] = [(int(i), int(j)) for (i, j) in fill_edges]
+            made.append(G)
+            pbar.update(1)
+    pbar.close()
+    return made
+
+
+def _load_or_make(cache_path, num_graphs, seed=None):
+    have = []
+    if os.path.exists(cache_path):
+        with open(cache_path, "r") as f:
+            for line in f:
+                have.append(_deserialize_graph(json.loads(line)))
+    if len(have) >= num_graphs:
+        return have[:num_graphs]
+
+    need = num_graphs - len(have)
+    new_graphs = _generate_graphs(need, seed=seed)
+
+    # append newly generated to cache
+    with open(cache_path, "a") as f:
+        for G in new_graphs:
+            f.write(json.dumps(_serialize_graph(G)) + "\n")
+    return have + new_graphs
 
 
 def build_pyg_graph(graph_data):
@@ -131,8 +188,7 @@ def compute_edge_features(G, edge_pairs):
         common = len(intersection)
         jaccard = len(intersection) / len(union) if union else 0
 
-        adamic_adar = sum(1 / torch.log(torch.tensor(degrees[n], dtype=torch.float))
-                          for n in intersection if degrees[n] > 1) if intersection else 0
+        adamic_adar = sum(1.0 / math.log(degrees[n]) for n in intersection if degrees[n] > 1) if intersection else 0.0
         pref_attach = degrees[u] * degrees[v]
 
         ebc_val = ebc_dict.get((u, v), ebc_dict.get((v, u), 0.0))
@@ -142,32 +198,67 @@ def compute_edge_features(G, edge_pairs):
     return torch.tensor(features, dtype=torch.float)
 
 
-def benchmark_model(adapter_fn, num_graphs=1000, batch_size=1):
-    test_graphs = []
+def generate_graph_batch(num_graphs, seed=42):
+    rng = random.Random(seed)
+    made = []
     pbar = tqdm(total=num_graphs, desc="Generating test graphs")
-    while len(test_graphs) < num_graphs:
-        G = generate_non_chordal_graph(random.randint(6, 140))
+    while len(made) < num_graphs:
+        n = rng.randint(6, 140)
+        G = nx.erdos_renyi_graph(n, 0.3, seed=rng.randrange(1 << 30))
+        if nx.is_chordal(G):
+            continue
         fill_edges = solve_min_fill(G)
         if fill_edges:
-            G.graph['fill_edges'] = fill_edges
-            test_graphs.append(G)
+            G.graph['fill_edges'] = [(int(i), int(j)) for (i, j) in fill_edges]
+            made.append(G)
             pbar.update(1)
     pbar.close()
+    return made
 
-    data_list = [build_pyg_graph(g) for g in tqdm(test_graphs, desc="Building PyG graphs")]
+
+def build_pyg_batch(graphs):
+    return [build_pyg_graph(g) for g in tqdm(graphs, desc="Building PyG graphs")]
+
+
+_CACHED_DATA = None
+_CACHED_NUM  = None
+
+def _get_cached_data(num_graphs):
+    global _CACHED_DATA, _CACHED_NUM
+    if _CACHED_DATA is None or _CACHED_NUM != num_graphs:
+        test_graphs = []
+        pbar = tqdm(total=num_graphs, desc="Generating test graphs")
+        while len(test_graphs) < num_graphs:
+            G = generate_non_chordal_graph(random.randint(6, 140))
+            fill_edges = solve_min_fill(G)
+            if fill_edges:
+                G.graph['fill_edges'] = fill_edges
+                test_graphs.append(G)
+                pbar.update(1)
+        pbar.close()
+        _CACHED_DATA = [build_pyg_graph(g) for g in tqdm(test_graphs, desc="Building PyG graphs")]
+        _CACHED_NUM = num_graphs
+    return _CACHED_DATA
+
+
+def benchmark_model(adapter_fn, num_graphs=1000, batch_size=1,
+                    test_graphs=None, data_list=None, seed=42):
+    data_list = _get_cached_data(num_graphs)
+
     loader = DataLoader(data_list, batch_size=batch_size)
 
     all_labels, all_preds, all_probs = [], [], []
     for data in tqdm(loader, desc="Evaluating"):
         preds = adapter_fn(data)
-        labels = data.edge_labels.view(-1).int()
-        all_labels.extend(labels.tolist())
-        all_preds.extend((preds > 0.5).int().tolist())
-        all_probs.extend(preds.sigmoid().tolist())
+        labels = data.edge_labels.view(-1).int().cpu().tolist()
+        probs = torch.as_tensor(preds, dtype=torch.float32).detach().cpu().flatten()
+
+        all_labels.extend(labels)
+        all_preds.extend((probs > 0.5).int().tolist())
+        all_probs.extend(probs.tolist())
 
     print("\nClassification Report:")
     print(classification_report(all_labels, all_preds, zero_division=0))
-
     try:
         auc_score = roc_auc_score(all_labels, all_probs)
         print(f"AUC: {auc_score:.4f}")

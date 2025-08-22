@@ -10,8 +10,8 @@ def adapter_rf(model):
 
 print(f"Benchmark: Supervised Learning")
 model = joblib.load("model1_best.pth")
-benchmark_supervised(model, num_graphs=1000, epoch=5)
+benchmark_supervised(model, num_graphs=1000, pct_extra=10)
 
 print(f"Benchmark: Reinforcement Learning")
 model = joblib.load("model2_best.pth")
-benchmark_acyclicity(adapter_rf(model), num_graphs=1000, epoch=5)
+benchmark_acyclicity(adapter_rf(model), num_graphs=1000, pct_extra=10)

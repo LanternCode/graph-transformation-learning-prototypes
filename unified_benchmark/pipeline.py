@@ -2,13 +2,14 @@ import numpy as np
 import torch
 from unified_benchmark.benchmark.benchmark_manager import BenchmarkManager
 
+enable_all = True
 suite = {
-    'symclo': 1,
-    'transclo': 1
+    'symclo': 0,
+    'transclo': 0
 }
 
 # --------------- Symmetric Closure External Benchmark --------------- #
-if suite['symclo']:
+if enable_all or suite['symclo']:
     from unified_benchmark.models.SymmetricClosureMLP import SymmetricClosureMLP
     from unified_benchmark.benchmark.tasks.symmetric_closure import SymmetricClosureTask
 
@@ -30,7 +31,7 @@ if suite['symclo']:
     bench.evaluate(preds)
 
 # --------------- Transitive Closure External Benchmark --------------- #
-if suite['transclo']:
+if enable_all or suite['transclo']:
     from unified_benchmark.models.TransitiveClosureMLP import RecurrentClosure
     from unified_benchmark.benchmark.tasks.transitive_closure import TransitiveClosureTask
 
