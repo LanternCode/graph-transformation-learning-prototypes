@@ -1,4 +1,3 @@
-# Mac OS .DS_Store sytem files
 .DS_Store
 *.err
 *.out
@@ -17,3 +16,4 @@ results
 *.col
 *.edgelist
 *.joblib
+*.edgelist

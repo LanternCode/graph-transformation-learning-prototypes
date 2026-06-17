@@ -1,0 +1,15 @@
+Epoch 010: Avg Loss=0.1596  Val PR-AUC=0.9356
+Epoch 020: Avg Loss=0.0679  Val PR-AUC=0.9506
+Epoch 030: Avg Loss=0.0439  Val PR-AUC=0.9559
+Epoch 040: Avg Loss=0.0357  Val PR-AUC=0.9622
+Epoch 050: Avg Loss=0.0327  Val PR-AUC=0.9647
+Epoch 060: Avg Loss=0.0309  Val PR-AUC=0.9659
+Epoch 070: Avg Loss=0.0297  Val PR-AUC=0.9669
+Epoch 080: Avg Loss=0.0288  Val PR-AUC=0.9673
+Epoch 090: Avg Loss=0.0282  Val PR-AUC=0.9675
+Epoch 100: Avg Loss=0.0278  Val PR-AUC=0.9681
+Best Val PR-AUC: 0.9682  (model saved to recurrent_best_v2.pth)
+Test PR AUC = 0.968
+Max F1 = 0.969 at thresh = 0.613
+Evaluation metrics at F1-optimal threshold: {'accuracy': 0.9958233528512961, 'precision': 0.9408112812212455, 'recall': 0.9995877454386978, 'f1': 0.9693093168553186, 'avg_inference_time': 0.004275776147842407}
+Saved final checkpoint with threshold to recurrent_best_final_v2.pth
